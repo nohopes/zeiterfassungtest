@@ -1,0 +1,21 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+*.iml
+*.log
+
+# iOS/Xcode (werden lokal per `flutter create .` neu erzeugt/verwaltet)
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+**/*.xcuserstate
+
+# Android
+android/.gradle/
+android/local.properties
+
+.DS_Store

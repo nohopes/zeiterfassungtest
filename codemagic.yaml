@@ -1,0 +1,59 @@
+# Codemagic CI/CD Konfiguration für iOS-Builds ohne eigenen Mac.
+#
+# Einrichtung (einmalig) unter https://codemagic.io:
+# 1. Repository (GitHub) verbinden.
+# 2. Unter "Team" -> "Code signing identities" -> Apple Developer Portal
+#    Integration mit deinem Apple-Developer-Account (App Store Connect API
+#    Key) einrichten. Codemagic erstellt/verwaltet die Signierung dann
+#    automatisch (automatic code signing) - dafür brauchst du KEINEN Mac.
+# 3. Workflow "ios-workshop" auswählen und starten -> Ergebnis landet
+#    automatisch in TestFlight.
+#
+# WICHTIG: Dieses Projekt enthält absichtlich noch keinen ios/-Ordner
+# (siehe README.md). Der erste Build-Schritt unten führt deshalb
+# `flutter create .` aus, um die nativen Projektdateien zu erzeugen -
+# das ist bei einem bestehenden Projekt sicher und überschreibt keinen
+# eigenen Dart-Code.
+
+workflows:
+  ios-workshop:
+    name: Zeiterfassung – iOS Build & TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - app_store_credentials # in Codemagic UI anlegen (API Key etc.)
+      vars:
+        BUNDLE_ID: "de.dennis.zeiterfassung" # ggf. anpassen
+        XCODE_WORKSPACE: "ios/Runner.xcworkspace"
+        XCODE_SCHEME: "Runner"
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Native Projektdateien sicherstellen
+        script: |
+          if [ ! -d "ios" ]; then
+            flutter create --platforms=ios --org de.dennis .
+          fi
+      - name: Abhängigkeiten installieren
+        script: flutter pub get
+      - name: Code-Signing einrichten
+        script: |
+          xcode-project use-profiles
+      - name: iOS-App bauen
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
