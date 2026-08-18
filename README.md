@@ -92,12 +92,24 @@ Backend-Server (reines Dart, kein Flutter nötig). Anders als bei einer
 "nur Browser"-PWA speichert dieser Server die Einträge dauerhaft in einer
 Datei auf einem Docker-Volume - dadurch sehen alle Geräte/Browser, die die
 Seite öffnen, dieselben Daten, und die Daten überleben einen
-Container-Neustart oder -Update. **Wichtig:** Es gibt (noch) kein
-Nutzerkonto/Login - alle Einträge landen in einem gemeinsamen Topf. Für
-dich allein (z. B. Handy- und Desktop-Browser gleichzeitig) ist das genau
-richtig; falls später mehrere Kollegen dieselbe Instanz nutzen sollen,
-sehen/bearbeiten die aktuell alle dieselben Einträge (eine echte
-Benutzertrennung wäre ein separater Ausbauschritt).
+Container-Neustart oder -Update.
+
+**Login/Nutzerkonten:** Die Web/PWA-Variante hat ein echtes Login
+(Benutzername + Passwort). Jeder Nutzer sieht **ausschließlich seine
+eigenen Einträge** - ideal, wenn mehrere Kollegen dieselbe Instanz nutzen,
+aber niemand die Einträge der anderen sehen soll. Auf iPhone/Windows/etc.
+(lokale Speicherung, kein Server) gibt es weiterhin **kein** Login - dort
+sind die Daten sowieso nur auf dem jeweiligen Gerät.
+
+Beim allerersten Start des Containers (wenn noch kein einziger Nutzer
+existiert) wird automatisch ein Admin-Konto aus den Umgebungsvariablen
+`ADMIN_USERNAME`/`ADMIN_PASSWORD` angelegt (siehe `docker-compose.yml`).
+**Wichtig:** Ohne diese beiden Variablen kann sich niemand einloggen - der
+Server gibt dazu eine deutliche Warnung im Log aus. Mit diesem Admin-Konto
+kannst du dich danach im "Konto"-Tab der App einloggen und dort über
+"Neuen Kollegen anlegen" weitere Nutzer (optional auch mit Admin-Rechten)
+hinzufügen - eine eigene Admin-Oberfläche außerhalb der App gibt es
+bewusst nicht.
 
 Das Bauen (Flutter-SDK + Dart-Compiler) passiert komplett in
 GitHub Actions - kostenlos, genau wie beim iOS-Build. unRAID muss dadurch
@@ -130,6 +142,10 @@ Im unRAID-Webinterface, Tab **Docker** → unten **"Add Container"**:
 - **Pfad-Zuordnung (Volume):** Container-Pfad `/data` → Host-Pfad z. B.
   `/mnt/user/appdata/zeiterfassung` (hier landen die Zeiterfassungsdaten
   dauerhaft)
+- **Variablen (Environment):** unbedingt `ADMIN_USERNAME` und
+  `ADMIN_PASSWORD` mit deinen gewünschten Zugangsdaten anlegen - damit
+  entsteht beim ersten Start dein Admin-Konto zum Einloggen. Ohne diese
+  beiden Variablen kann sich niemand anmelden.
 - Übernehmen/Apply klicken - unRAID lädt das Image herunter und startet
   den Container.
 
@@ -214,11 +230,15 @@ zeiterfassung/
     utils/time_rounding.dart      # Dauer-Berechnung & 0,25h-Rundung
     db/database_helper.dart       # Fassade: wählt io- oder web-Implementierung
     db/database_helper_io.dart    # lokale sembast-Datenbank (iOS/Windows/macOS/Linux)
-    db/database_helper_web.dart   # REST-Client fürs Backend (Web/PWA)
+    db/database_helper_web.dart   # REST-Client fürs Backend (Web/PWA), inkl. Auth-Header
+    auth/auth_gate.dart           # Fassade: Login-Zwang nur für Web/PWA
+    services/auth_service.dart    # Login-Status, Token-Speicherung (Web/PWA)
     services/pdf_export_service.dart  # PDF-Export (Werkstatt + Gesamtbericht)
     screens/home_screen.dart      # Tagesansicht
     screens/add_entry_screen.dart # Eintrag anlegen/bearbeiten
     screens/month_overview_screen.dart # Monatsübersicht + PDF-Export
+    screens/login_screen.dart     # Login-Formular (Web/PWA)
+    screens/account_screen.dart   # Konto/Nutzerverwaltung (Fassade io/web)
     main.dart
   server/                          # Backend für die PWA (reines Dart, kein Flutter)
     bin/server.dart                 # REST-API + Ausliefern der Web-App + sembast-Speicherung

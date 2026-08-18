@@ -19,6 +19,7 @@ dependencies:
   pdf: ^3.11.0
   printing: ^5.13.1
   http: ^1.6.0 # für die Web/PWA-Variante: REST-Aufrufe an den Backend-Server
+  shared_preferences: ^2.5.5 # für die Web/PWA-Variante: Login-Token zwischen Sitzungen merken
 
 dev_dependencies:
   flutter_test:

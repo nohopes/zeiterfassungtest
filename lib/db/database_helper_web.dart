@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/time_entry.dart';
+import '../services/auth_service.dart';
 
 /// Kapselt den Zugriff auf die Daten - für die Web/PWA-Variante.
 ///
@@ -12,8 +13,9 @@ import '../models/time_entry.dart';
 /// einem Docker-Volume ab - so bleiben die Daten erhalten, egal welches
 /// Gerät/Browser die Seite öffnet, und sie überleben einen Container-Neustart.
 ///
-/// Achtung: Es gibt (bisher) kein Nutzerkonzept/Login - alle Einträge landen
-/// in einem gemeinsamen Topf.
+/// Jede Anfrage trägt den Bearer-Token des eingeloggten Nutzers (siehe
+/// [AuthService]) - der Server filtert serverseitig strikt auf dessen
+/// eigene Einträge, andere Nutzer sehen sie nie.
 ///
 /// `Uri.base` liefert im Browser zuverlässig die aktuelle Seiten-URL (Origin
 /// + Pfad) - darüber werden alle API-Aufrufe absolut und funktionieren egal
@@ -24,10 +26,15 @@ class DatabaseHelper {
 
   Uri _apiUri(String pathAndQuery) => Uri.base.resolve(pathAndQuery);
 
+  Map<String, String> _headers([Map<String, String>? extra]) => {
+        ...AuthService.instance.authHeaders,
+        ...?extra,
+      };
+
   Future<int> insertEntry(TimeEntry entry) async {
     final response = await http.post(
       _apiUri('/api/entries'),
-      headers: {'content-type': 'application/json'},
+      headers: _headers({'content-type': 'application/json'}),
       body: jsonEncode(entry.toInsertMap()),
     );
     _checkOk(response);
@@ -42,7 +49,7 @@ class DatabaseHelper {
     }
     final response = await http.put(
       _apiUri('/api/entries/$id'),
-      headers: {'content-type': 'application/json'},
+      headers: _headers({'content-type': 'application/json'}),
       body: jsonEncode(entry.toInsertMap()),
     );
     _checkOk(response);
@@ -50,7 +57,7 @@ class DatabaseHelper {
   }
 
   Future<void> deleteEntry(int id) async {
-    final response = await http.delete(_apiUri('/api/entries/$id'));
+    final response = await http.delete(_apiUri('/api/entries/$id'), headers: _headers());
     _checkOk(response);
   }
 
@@ -58,6 +65,7 @@ class DatabaseHelper {
     final dateOnly = DateTime(day.year, day.month, day.day);
     final response = await http.get(
       _apiUri('/api/entries/day?date=${dateOnly.toIso8601String()}'),
+      headers: _headers(),
     );
     return _decodeList(response);
   }
@@ -65,6 +73,7 @@ class DatabaseHelper {
   Future<List<TimeEntry>> entriesForMonth(int year, int month) async {
     final response = await http.get(
       _apiUri('/api/entries/month?year=$year&month=$month'),
+      headers: _headers(),
     );
     return _decodeList(response);
   }
@@ -79,6 +88,7 @@ class DatabaseHelper {
         '/api/entries/range?start=${startInclusive.toIso8601String()}'
         '&end=${endExclusive.toIso8601String()}',
       ),
+      headers: _headers(),
     );
     return _decodeList(response);
   }
@@ -94,7 +104,10 @@ class DatabaseHelper {
   /// Die zuletzt verwendeten, unterschiedlichen Tätigkeitstexte (für
   /// Schnellauswahl beim Anlegen eines neuen Eintrags).
   Future<List<String>> recentActivities({int limit = 8}) async {
-    final response = await http.get(_apiUri('/api/recent-activities?limit=$limit'));
+    final response = await http.get(
+      _apiUri('/api/recent-activities?limit=$limit'),
+      headers: _headers(),
+    );
     _checkOk(response);
     return (jsonDecode(response.body) as List).cast<String>();
   }
@@ -107,13 +120,14 @@ class DatabaseHelper {
     if (needle.isEmpty) return [];
     final response = await http.get(
       _apiUri('/api/search?q=${Uri.encodeQueryComponent(needle)}'),
+      headers: _headers(),
     );
     return _decodeList(response);
   }
 
   /// Alle bisher verwendeten Kundennamen (für Schnellauswahl), sortiert.
   Future<List<String>> distinctCustomerNames() async {
-    final response = await http.get(_apiUri('/api/customers'));
+    final response = await http.get(_apiUri('/api/customers'), headers: _headers());
     _checkOk(response);
     return (jsonDecode(response.body) as List).cast<String>();
   }

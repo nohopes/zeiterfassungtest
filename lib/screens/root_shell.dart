@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'account_screen.dart';
 import 'home_screen.dart';
 import 'month_overview_screen.dart';
 import 'search_screen.dart';
 
 /// Äußerer App-Rahmen mit Bottom-Navigation für schnellen Wechsel
-/// zwischen Tagesansicht, Monatsübersicht und Suche.
+/// zwischen Tagesansicht, Monatsübersicht, Suche und Konto.
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
 
@@ -24,6 +25,7 @@ class _RootShellState extends State<RootShell> {
     const HomeScreen(),
     MonthOverviewScreen(key: _monthKey),
     const SearchScreen(),
+    const AccountScreen(),
   ];
 
   void _onDestinationSelected(int i) {
@@ -63,6 +65,11 @@ class _RootShellState extends State<RootShell> {
             icon: Icon(Icons.search_outlined),
             selectedIcon: Icon(Icons.search),
             label: 'Suche',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Konto',
           ),
         ],
       ),

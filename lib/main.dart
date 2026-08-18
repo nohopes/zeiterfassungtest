@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'auth/auth_gate.dart';
 import 'screens/root_shell.dart';
 import 'theme/design_tokens.dart';
 
@@ -150,7 +151,7 @@ class ZeiterfassungApp extends StatelessWidget {
           space: 1,
         ),
       ),
-      home: const RootShell(),
+      home: const AuthGate(child: RootShell()),
     );
   }
 }

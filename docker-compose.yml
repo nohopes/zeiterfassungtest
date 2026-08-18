@@ -11,4 +11,11 @@ services:
       # auf /mnt/user/appdata/zeiterfassung zeigen lassen, damit die Daten
       # einen Container-Neustart/-Update überleben.
       - ./data:/data
+    environment:
+      # Admin-Konto, das beim allerersten Start automatisch angelegt wird
+      # (nur wenn noch KEIN Nutzer existiert - danach ohne Wirkung).
+      # WICHTIG: hier echte Zugangsdaten eintragen und diese Datei NICHT mit
+      # echten Werten in ein (öffentliches) Git-Repo committen!
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=bitte-aendern
     restart: unless-stopped
