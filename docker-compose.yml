@@ -1,0 +1,14 @@
+services:
+  zeiterfassung:
+    build: .
+    container_name: zeiterfassung
+    ports:
+      # Links der Port auf dem Host (unRAID/Debian-VM), rechts der Port im
+      # Container. Bei Bedarf links anpassen, falls 8080 schon belegt ist.
+      - "8080:8080"
+    volumes:
+      # Persistente Speicherung der Zeiterfassungsdaten. Unter unRAID z. B.
+      # auf /mnt/user/appdata/zeiterfassung zeigen lassen, damit die Daten
+      # einen Container-Neustart/-Update überleben.
+      - ./data:/data
+    restart: unless-stopped

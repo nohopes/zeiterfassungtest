@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../db/database_helper.dart';
 import '../models/time_entry.dart';
-import '../utils/time_rounding.dart';
+import '../theme/design_tokens.dart';
+import '../widgets/ledger_row.dart';
 import 'add_entry_screen.dart';
 
 /// Volltextsuche über Kundennamen/"Werkstatt" und Tätigkeit, über alle
@@ -61,6 +61,25 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  /// Übernimmt Name/Tätigkeit/Uhrzeiten eines vergangenen Eintrags als
+  /// Ausgangspunkt für einen neuen Eintrag - z. B. um eine wiederkehrende
+  /// Tätigkeit für heute schnell zu erfassen, ohne alles neu einzutippen.
+  Future<void> _duplicateForToday(TimeEntry entry) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AddEntryScreen(
+          initialDate: DateTime.now(),
+          template: entry,
+        ),
+      ),
+    );
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Für heute übernommen')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -95,9 +114,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     ? Center(
                         child: Text(
                           'Suche nach Kunde oder Tätigkeit',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
+                          style: TextStyle(color: AppColors.inkMuted),
                         ),
                       )
                     : _results.isEmpty
@@ -107,28 +124,14 @@ class _SearchScreenState extends State<SearchScreen> {
                             itemCount: _results.length,
                             itemBuilder: (context, index) {
                               final e = _results[index];
-                              return Card(
-                                child: ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor:
-                                        e.isWerkstatt ? Colors.orange : Colors.blueGrey,
-                                    child: Icon(
-                                      e.isWerkstatt ? Icons.build : Icons.person,
-                                      color: Colors.white,
-                                      size: 18,
-                                    ),
-                                  ),
-                                  title: Text(e.name),
-                                  subtitle: Text(
-                                    '${DateFormat('EEE, dd.MM.yyyy', 'de_DE').format(e.date)} · '
-                                    '${formatTimeOfDay(e.startTime)}–${formatTimeOfDay(e.endTime)} · '
-                                    '${e.activity}',
-                                  ),
-                                  trailing: Text(
-                                    '${formatHours(e.durationHours)} Std.',
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                  onTap: () => _openEntry(e),
+                              return LedgerRow(
+                                entry: e,
+                                showDate: true,
+                                onTap: () => _openEntry(e),
+                                trailingAction: IconButton(
+                                  icon: const Icon(Icons.today_outlined, size: 20),
+                                  tooltip: 'Für heute übernehmen',
+                                  onPressed: () => _duplicateForToday(e),
                                 ),
                               );
                             },

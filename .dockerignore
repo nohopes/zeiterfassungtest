@@ -1,0 +1,11 @@
+build/
+**/.dart_tool/
+.idea/
+.vscode/
+android/
+ios/
+windows/
+macos/
+linux/
+data/
+*.md

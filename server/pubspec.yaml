@@ -1,0 +1,20 @@
+name: zeiterfassung_server
+description: >
+  Backend für die Zeiterfassung-PWA. Reine Dart-Anwendung (kein Flutter
+  nötig) - stellt eine kleine REST-API bereit und speichert alle Einträge
+  dauerhaft über sembast in einer Datei auf einem Docker-Volume, statt sie
+  nur lokal im Browser abzulegen.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  shelf: ^1.4.2
+  shelf_router: ^1.1.4
+  shelf_static: ^1.1.3
+  sembast: ^3.7.0
+
+dev_dependencies:
+  lints: ^4.0.0

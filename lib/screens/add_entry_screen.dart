@@ -2,13 +2,26 @@ import 'package:flutter/material.dart';
 
 import '../db/database_helper.dart';
 import '../models/time_entry.dart';
+import '../theme/design_tokens.dart';
 import '../utils/time_rounding.dart';
 
 class AddEntryScreen extends StatefulWidget {
   final DateTime initialDate;
+
+  /// Vorhandener Eintrag zum Bearbeiten (hat eine id, kann gelöscht werden).
   final TimeEntry? existing;
 
-  const AddEntryScreen({super.key, required this.initialDate, this.existing});
+  /// Werte eines vergangenen Eintrags, die als Ausgangspunkt für einen NEUEN
+  /// Eintrag übernommen werden sollen (z. B. "Für heute übernehmen" aus der
+  /// Suche). Wird als neuer Eintrag gespeichert, nicht als Bearbeitung.
+  final TimeEntry? template;
+
+  const AddEntryScreen({
+    super.key,
+    required this.initialDate,
+    this.existing,
+    this.template,
+  });
 
   @override
   State<AddEntryScreen> createState() => _AddEntryScreenState();
@@ -21,6 +34,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
   TimeOfDay _startTime = const TimeOfDay(hour: 7, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 7, minute: 30);
   List<String> _knownCustomers = [];
+  List<String> _recentActivities = [];
   bool _saving = false;
 
   bool get _isEditing => widget.existing != null;
@@ -28,23 +42,33 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
   @override
   void initState() {
     super.initState();
-    final existing = widget.existing;
-    _isWerkstatt = existing?.isWerkstatt ?? false;
+    // Werte kommen entweder von einem zu bearbeitenden Eintrag, einer
+    // Vorlage (Duplizieren), oder es sind die Standardwerte für einen
+    // komplett neuen Eintrag.
+    final source = widget.existing ?? widget.template;
+    _isWerkstatt = source?.isWerkstatt ?? false;
     _nameController = TextEditingController(
-      text: (existing != null && !existing.isWerkstatt) ? existing.name : '',
+      text: (source != null && !source.isWerkstatt) ? source.name : '',
     );
-    _activityController = TextEditingController(text: existing?.activity ?? '');
-    if (existing != null) {
-      _startTime = existing.startTime;
-      _endTime = existing.endTime;
+    _activityController = TextEditingController(text: source?.activity ?? '');
+    if (source != null) {
+      _startTime = source.startTime;
+      _endTime = source.endTime;
     }
     _loadKnownCustomers();
+    _loadRecentActivities();
   }
 
   Future<void> _loadKnownCustomers() async {
     final names = await DatabaseHelper.instance.distinctCustomerNames();
     if (!mounted) return;
     setState(() => _knownCustomers = names);
+  }
+
+  Future<void> _loadRecentActivities() async {
+    final activities = await DatabaseHelper.instance.recentActivities();
+    if (!mounted) return;
+    setState(() => _recentActivities = activities);
   }
 
   @override
@@ -128,6 +152,10 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
   Widget build(BuildContext context) {
     final quickCustomers =
         _knownCustomers.where((n) => n != _nameController.text).take(8).toList();
+    final quickActivities = _recentActivities
+        .where((a) => a != _activityController.text)
+        .take(6)
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -160,10 +188,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
             if (!_isWerkstatt) ...[
               TextField(
                 controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Kunde',
-                  border: OutlineInputBorder(),
-                ),
+                decoration: const InputDecoration(labelText: 'Kunde'),
                 textCapitalization: TextCapitalization.words,
                 onChanged: (_) => setState(() {}),
               ),
@@ -204,10 +229,27 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Berechnete Dauer: ${formatHours(_roundedHours)} Std. (gerundet auf 0,25-Schritte)',
-              style: Theme.of(context).textTheme.bodyMedium,
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Text(
+                  formatHours(_roundedHours),
+                  style: AppTextStyles.monoStrong.copyWith(
+                    fontSize: 16,
+                    color: _isWerkstatt ? AppColors.amber : AppColors.teal,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Std. (gerundet auf 0,25-Schritte)',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: AppColors.inkMuted),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             TextField(
@@ -215,11 +257,30 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
               maxLines: 3,
               decoration: const InputDecoration(
                 labelText: 'Tätigkeit',
-                border: OutlineInputBorder(),
                 hintText: 'z. B. UP Arbeiten',
               ),
               textCapitalization: TextCapitalization.sentences,
+              onChanged: (_) => setState(() {}),
             ),
+            if (quickActivities.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: quickActivities
+                    .map(
+                      (activity) => ActionChip(
+                        avatar: const Icon(Icons.history, size: 16),
+                        label: Text(activity),
+                        onPressed: () {
+                          _activityController.text = activity;
+                          setState(() {});
+                        },
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _saving ? null : _save,

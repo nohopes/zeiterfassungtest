@@ -32,6 +32,14 @@ jobs:
             flutter create --platforms=ios --org de.dennis .
           fi
 
+      - name: App-Namen auf dem iPhone setzen ("Stunden Logbuch")
+        run: |
+          PLIST=ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Stunden Logbuch'" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string 'Stunden Logbuch'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName 'Stunden Logbuch'" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleName string 'Stunden Logbuch'" "$PLIST"
+
       - name: Abhängigkeiten installieren
         run: flutter pub get
 

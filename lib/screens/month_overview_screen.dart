@@ -3,8 +3,11 @@ import 'package:intl/intl.dart';
 
 import '../db/database_helper.dart';
 import '../models/time_entry.dart';
+import '../theme/design_tokens.dart';
 import '../services/pdf_export_service.dart';
-import '../utils/time_rounding.dart';
+import '../widgets/stamp_badge.dart';
+import 'customer_month_detail_screen.dart';
+import 'day_detail_screen.dart';
 
 class MonthOverviewScreen extends StatefulWidget {
   const MonthOverviewScreen({super.key});
@@ -17,7 +20,8 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   List<TimeEntry> _entries = [];
   bool _loading = true;
-  bool _exporting = false;
+  bool _exportingWerkstatt = false;
+  bool _exportingFull = false;
 
   @override
   void initState() {
@@ -55,8 +59,10 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
       .where((e) => e.isWerkstatt)
       .fold(0.0, (sum, e) => sum + e.durationHours);
 
-  Future<void> _exportPdf() async {
-    setState(() => _exporting = true);
+  Set<int> get _daysWithEntries => _entries.map((e) => e.date.day).toSet();
+
+  Future<void> _exportWerkstattPdf() async {
+    setState(() => _exportingWerkstatt = true);
     try {
       await PdfExportService.exportAndShareWerkstattMonth(
         year: _month.year,
@@ -64,8 +70,43 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
         entries: _entries,
       );
     } finally {
-      if (mounted) setState(() => _exporting = false);
+      if (mounted) setState(() => _exportingWerkstatt = false);
     }
+  }
+
+  Future<void> _exportFullPdf() async {
+    setState(() => _exportingFull = true);
+    try {
+      await PdfExportService.exportAndShareFullMonth(
+        year: _month.year,
+        month: _month.month,
+        entries: _entries,
+      );
+    } finally {
+      if (mounted) setState(() => _exportingFull = false);
+    }
+  }
+
+  Future<void> _openDay(DateTime day) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => DayDetailScreen(day: day)),
+    );
+    if (result == true) _load();
+  }
+
+  Future<void> _openCustomer(String name) async {
+    final entriesForCustomer =
+        _entries.where((e) => e.name == name && !e.isWerkstatt).toList();
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CustomerMonthDetailScreen(
+          customerName: name,
+          month: _month,
+          initialEntries: entriesForCustomer,
+        ),
+      ),
+    );
+    _load();
   }
 
   @override
@@ -89,7 +130,13 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
                     ),
                     Expanded(
                       child: Center(
-                        child: Text(monthLabel, style: Theme.of(context).textTheme.titleLarge),
+                        child: Text(
+                          monthLabel,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
                       ),
                     ),
                     IconButton(
@@ -98,53 +145,276 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Card(
-                  color: Colors.orange.shade50,
-                  child: ListTile(
-                    leading: const Icon(Icons.build, color: Colors.orange),
-                    title: const Text('Werkstatt (gesamt)'),
-                    subtitle: const Text('Wird im PDF-Export ausgegeben'),
-                    trailing: Text(
-                      '${formatHours(_werkstattTotal)} Std.',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
                 const SizedBox(height: 8),
+                _MonthCalendar(
+                  month: _month,
+                  daysWithEntries: _daysWithEntries,
+                  onDayTap: _openDay,
+                ),
+                const SizedBox(height: 20),
+                _SummaryRow(
+                  icon: Icons.build_rounded,
+                  color: AppColors.amber,
+                  title: 'Werkstatt (gesamt)',
+                  subtitle: 'Wird im PDF-Export ausgegeben',
+                  hours: _werkstattTotal,
+                ),
+                const SizedBox(height: 12),
                 FilledButton.icon(
-                  onPressed: (!hasWerkstattEntries || _exporting) ? null : _exportPdf,
-                  icon: _exporting
+                  onPressed:
+                      (!hasWerkstattEntries || _exportingWerkstatt) ? null : _exportWerkstattPdf,
+                  icon: _exportingWerkstatt
                       ? const SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.picture_as_pdf),
-                  label: Text(_exporting ? 'Erstelle PDF …' : 'Werkstatt-PDF exportieren'),
+                  label: Text(_exportingWerkstatt ? 'Erstelle PDF …' : 'Werkstatt-PDF exportieren'),
                 ),
-                const SizedBox(height: 24),
-                Text('Kunden (zur eigenen Kontrolle)',
-                    style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: (_entries.isEmpty || _exportingFull) ? null : _exportFullPdf,
+                  icon: _exportingFull
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.summarize_outlined),
+                  label: Text(_exportingFull ? 'Erstelle PDF …' : 'Gesamtbericht exportieren'),
+                ),
+                const SizedBox(height: 28),
+                Text(
+                  'KUNDEN (ZUR EIGENEN KONTROLLE)',
+                  style: AppTextStyles.eyebrow(AppColors.inkMuted),
+                ),
+                const SizedBox(height: 10),
                 if (customerTotals.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Text('Keine Kundeneinträge in diesem Monat'),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      'Keine Kundeneinträge in diesem Monat',
+                      style: TextStyle(color: AppColors.inkMuted),
+                    ),
                   )
                 else
-                  ...customerTotals.entries.map(
-                    (entry) => ListTile(
-                      leading: const Icon(Icons.person_outline),
-                      title: Text(entry.key),
-                      trailing: Text(
-                        '${formatHours(entry.value)} Std.',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: AppColors.line),
+                    ),
+                    child: Column(
+                      children: [
+                        for (final entry in customerTotals.entries)
+                          _CustomerRow(
+                            name: entry.key,
+                            hours: entry.value,
+                            isLast: entry.key == customerTotals.keys.last,
+                            onTap: () => _openCustomer(entry.key),
+                          ),
+                      ],
                     ),
                   ),
               ],
             ),
+    );
+  }
+}
+
+/// Zusammenfassungszeile mit farbigem Rand links, wie eine hervorgehobene
+/// Buchzeile - konsistent mit LedgerRow, aber ohne festen TimeEntry-Bezug.
+class _SummaryRow extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final double hours;
+
+  const _SummaryRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.hours,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(4),
+        border: Border(left: BorderSide(color: color, width: 4)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          StampBadge(hours: hours, color: color),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerRow extends StatelessWidget {
+  final String name;
+  final double hours;
+  final bool isLast;
+  final VoidCallback onTap;
+
+  const _CustomerRow({
+    required this.name,
+    required this.hours,
+    required this.isLast,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          border: isLast
+              ? null
+              : const Border(bottom: BorderSide(color: AppColors.line)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        child: Row(
+          children: [
+            const Icon(Icons.person_outline, size: 18, color: AppColors.teal),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            StampBadge(hours: hours, color: AppColors.teal, fontSize: 12),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Kleiner Monatskalender mit Punkt-Markierung an Tagen mit Einträgen.
+/// Tippen auf einen Tag öffnet die Tagesdetailansicht.
+class _MonthCalendar extends StatelessWidget {
+  final DateTime month;
+  final Set<int> daysWithEntries;
+  final ValueChanged<DateTime> onDayTap;
+
+  const _MonthCalendar({
+    required this.month,
+    required this.daysWithEntries,
+    required this.onDayTap,
+  });
+
+  static const _weekdayLabels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+  @override
+  Widget build(BuildContext context) {
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final firstOfMonth = DateTime(month.year, month.month, 1);
+    final leadingEmptyCells = firstOfMonth.weekday - 1; // Montag = 1
+    final now = DateTime.now();
+
+    final cells = <Widget>[];
+    for (var i = 0; i < leadingEmptyCells; i++) {
+      cells.add(const SizedBox.shrink());
+    }
+    for (var day = 1; day <= daysInMonth; day++) {
+      final date = DateTime(month.year, month.month, day);
+      final isToday =
+          date.year == now.year && date.month == now.month && date.day == now.day;
+      final hasEntries = daysWithEntries.contains(day);
+
+      cells.add(
+        InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: () => onDayTap(date),
+          child: Container(
+            margin: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: isToday ? AppColors.amberDim : null,
+              border: isToday ? Border.all(color: AppColors.amber, width: 1) : null,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '$day',
+                  style: AppTextStyles.mono.copyWith(
+                    fontWeight: isToday ? FontWeight.w800 : FontWeight.w500,
+                    color: isToday ? AppColors.amber : AppColors.ink,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Container(
+                  width: 5,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: hasEntries ? AppColors.amber : Colors.transparent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: _weekdayLabels
+                .map(
+                  (label) => Expanded(
+                    child: Center(
+                      child: Text(
+                        label,
+                        style: AppTextStyles.eyebrow(AppColors.inkMuted),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 4),
+          GridView.count(
+            crossAxisCount: 7,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            childAspectRatio: 1,
+            children: cells,
+          ),
+        ],
+      ),
     );
   }
 }
