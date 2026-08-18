@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/preset_activity.dart';
 import '../models/time_entry.dart';
 import '../services/auth_service.dart';
 
@@ -110,6 +111,55 @@ class DatabaseHelper {
     );
     _checkOk(response);
     return (jsonDecode(response.body) as List).cast<String>();
+  }
+
+  /// Die häufigsten Tätigkeitstexte über alle Einträge hinweg (im Gegensatz
+  /// zu [recentActivities], die nach Zeitpunkt statt Häufigkeit sortiert).
+  Future<List<String>> topActivities({int limit = 5}) async {
+    final response = await http.get(
+      _apiUri('/api/top-activities?limit=$limit'),
+      headers: _headers(),
+    );
+    _checkOk(response);
+    return (jsonDecode(response.body) as List).cast<String>();
+  }
+
+  /// Vom Nutzer selbst angelegte Tätigkeits-Vorlagen (siehe [PresetActivity]).
+  Future<List<PresetActivity>> presetActivities() async {
+    final response = await http.get(_apiUri('/api/preset-activities'), headers: _headers());
+    _checkOk(response);
+    final list = jsonDecode(response.body) as List;
+    return list
+        .map((e) => PresetActivity.fromMap((e as Map).cast<String, Object?>()))
+        .toList();
+  }
+
+  Future<int> addPresetActivity(String text) async {
+    final response = await http.post(
+      _apiUri('/api/preset-activities'),
+      headers: _headers({'content-type': 'application/json'}),
+      body: jsonEncode({'text': text}),
+    );
+    _checkOk(response);
+    final map = jsonDecode(response.body) as Map<String, dynamic>;
+    return map['id'] as int;
+  }
+
+  Future<void> updatePresetActivity(int id, String text) async {
+    final response = await http.put(
+      _apiUri('/api/preset-activities/$id'),
+      headers: _headers({'content-type': 'application/json'}),
+      body: jsonEncode({'text': text}),
+    );
+    _checkOk(response);
+  }
+
+  Future<void> deletePresetActivity(int id) async {
+    final response = await http.delete(
+      _apiUri('/api/preset-activities/$id'),
+      headers: _headers(),
+    );
+    _checkOk(response);
   }
 
   /// Sucht Einträge, deren Kunde/Werkstatt-Name oder Tätigkeit den

@@ -18,4 +18,12 @@ services:
       # echten Werten in ein (öffentliches) Git-Repo committen!
       - ADMIN_USERNAME=admin
       - ADMIN_PASSWORD=bitte-aendern
+      # Push-Erinnerungen (Mo-Fr 16:30, falls für heute kein Eintrag
+      # existiert) - optional. Ohne diese drei Variablen bleiben
+      # Push-Benachrichtigungen einfach deaktiviert, alles andere läuft
+      # normal weiter. EIN eigenes Schlüsselpaar pro Installation - NICHT
+      # mit anderen teilen, NICHT mit echten Werten committen!
+      - VAPID_PUBLIC_KEY=
+      - VAPID_PRIVATE_KEY=
+      - VAPID_SUBJECT=mailto:deine-email@example.com
     restart: unless-stopped

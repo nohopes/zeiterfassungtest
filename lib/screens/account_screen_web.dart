@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../services/auth_service.dart';
+import '../services/push_service.dart';
 import '../theme/design_tokens.dart';
 
 /// Web/PWA-Variante: zeigt den eingeloggten Nutzer, einen Logout-Button,
@@ -19,6 +20,8 @@ class _AccountScreenState extends State<AccountScreen> {
   List<Map<String, dynamic>>? _users;
   bool _loadingUsers = false;
   String? _usersError;
+  bool _subscribingPush = false;
+  bool _pushEnabled = false;
 
   @override
   void initState() {
@@ -167,6 +170,33 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
+  Future<void> _enablePushReminders() async {
+    setState(() => _subscribingPush = true);
+    final error = await PushService.instance.subscribe();
+    if (!mounted) return;
+    setState(() {
+      _subscribingPush = false;
+      _pushEnabled = error == null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error ?? 'Erinnerungen sind jetzt aktiv.')),
+    );
+  }
+
+  Future<void> _sendTestNotification() async {
+    final ok = await PushService.instance.sendTestNotification();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Test-Benachrichtigung verschickt - sollte gleich ankommen.'
+              : 'Test-Benachrichtigung konnte nicht verschickt werden.',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = AuthService.instance;
@@ -219,6 +249,34 @@ class _AccountScreenState extends State<AccountScreen> {
             icon: const Icon(Icons.logout),
             label: const Text('Abmelden'),
           ),
+          const SizedBox(height: 28),
+          Text('ERINNERUNGEN', style: AppTextStyles.eyebrow(AppColors.inkMuted)),
+          const SizedBox(height: 4),
+          Text(
+            'Erinnert werktags um 16:30 Uhr, falls für heute noch kein '
+            'Eintrag im Logbuch existiert.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.inkMuted),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: _subscribingPush ? null : _enablePushReminders,
+            icon: _subscribingPush
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.notifications_active_outlined),
+            label: const Text('Erinnerungen aktivieren'),
+          ),
+          if (_pushEnabled) ...[
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _sendTestNotification,
+              icon: const Icon(Icons.send_outlined, size: 18),
+              label: const Text('Test-Benachrichtigung senden'),
+            ),
+          ],
           if (auth.isAdmin) ...[
             const SizedBox(height: 28),
             Row(

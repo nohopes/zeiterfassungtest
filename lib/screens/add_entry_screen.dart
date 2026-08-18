@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../db/database_helper.dart';
+import '../models/preset_activity.dart';
 import '../models/time_entry.dart';
 import '../theme/design_tokens.dart';
 import '../utils/time_rounding.dart';
@@ -33,8 +34,14 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
   late TextEditingController _activityController;
   TimeOfDay _startTime = const TimeOfDay(hour: 7, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 7, minute: 30);
+
+  /// Pause in Minuten (0 = keine, 15 = Frühstück, 30 = Mittag) - nur bei
+  /// Kunden-Einträgen relevant, siehe [TimeEntry.breakMinutes].
+  int _breakMinutes = 0;
+
   List<String> _knownCustomers = [];
-  List<String> _recentActivities = [];
+  List<String> _topActivities = [];
+  List<PresetActivity> _presets = [];
   bool _saving = false;
 
   bool get _isEditing => widget.existing != null;
@@ -54,9 +61,11 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
     if (source != null) {
       _startTime = source.startTime;
       _endTime = source.endTime;
+      _breakMinutes = source.breakMinutes;
     }
     _loadKnownCustomers();
-    _loadRecentActivities();
+    _loadTopActivities();
+    _loadPresets();
   }
 
   Future<void> _loadKnownCustomers() async {
@@ -65,10 +74,16 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
     setState(() => _knownCustomers = names);
   }
 
-  Future<void> _loadRecentActivities() async {
-    final activities = await DatabaseHelper.instance.recentActivities();
+  Future<void> _loadTopActivities() async {
+    final activities = await DatabaseHelper.instance.topActivities();
     if (!mounted) return;
-    setState(() => _recentActivities = activities);
+    setState(() => _topActivities = activities);
+  }
+
+  Future<void> _loadPresets() async {
+    final presets = await DatabaseHelper.instance.presetActivities();
+    if (!mounted) return;
+    setState(() => _presets = presets);
   }
 
   @override
@@ -79,7 +94,14 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
   }
 
   Duration get _rawDuration => calculateDuration(_startTime, _endTime);
-  double get _roundedHours => roundDurationToQuarterHours(_rawDuration);
+
+  Duration get _netDuration {
+    final breakToSubtract = _isWerkstatt ? 0 : _breakMinutes;
+    final net = _rawDuration - Duration(minutes: breakToSubtract);
+    return net.isNegative ? Duration.zero : net;
+  }
+
+  double get _roundedHours => roundDurationToQuarterHours(_netDuration);
 
   Future<void> _pickTime({required bool isStart}) async {
     final initial = isStart ? _startTime : _endTime;
@@ -91,15 +113,26 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
         child: child!,
       ),
     );
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _startTime = picked;
-        } else {
-          _endTime = picked;
+    if (picked == null) return;
+
+    setState(() {
+      if (isStart) {
+        _startTime = picked;
+        // Zielzeit springt automatisch auf mindestens Start + 15 Min. mit -
+        // verhindert eine ungültige/zu knappe Endzeit, ohne eine bewusst
+        // länger gewählte Endzeit zu überschreiben. Gleiche
+        // Über-Mitternacht-Logik wie calculateDuration().
+        final startMinutes = picked.hour * 60 + picked.minute;
+        var currentEndMinutes = _endTime.hour * 60 + _endTime.minute;
+        if (currentEndMinutes < startMinutes) currentEndMinutes += 24 * 60;
+        final minEndMinutes = startMinutes + 15;
+        if (currentEndMinutes < minEndMinutes) {
+          _endTime = addMinutesToTimeOfDay(picked, 15);
         }
-      });
-    }
+      } else {
+        _endTime = picked;
+      }
+    });
   }
 
   Future<void> _save() async {
@@ -115,6 +148,10 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
       _showMessage('Endzeit muss nach der Startzeit liegen');
       return;
     }
+    if (!_isWerkstatt && _breakMinutes >= _rawDuration.inMinutes) {
+      _showMessage('Die Pause ist länger als die Arbeitszeit');
+      return;
+    }
 
     setState(() => _saving = true);
 
@@ -126,6 +163,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
       startTime: _startTime,
       endTime: _endTime,
       activity: _activityController.text.trim(),
+      breakMinutes: _isWerkstatt ? 0 : _breakMinutes,
     );
 
     if (_isEditing) {
@@ -148,11 +186,64 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
+  Future<void> _addPreset() async {
+    final text = await _promptForActivityText(title: 'Neue Vorlage');
+    if (text == null || text.isEmpty) return;
+    final newId = await DatabaseHelper.instance.addPresetActivity(text);
+    if (!mounted) return;
+    setState(() => _presets = [..._presets, PresetActivity(id: newId, text: text)]);
+  }
+
+  Future<void> _editPreset(PresetActivity preset) async {
+    final text = await _promptForActivityText(title: 'Vorlage bearbeiten', initial: preset.text);
+    if (text == null || text.isEmpty || text == preset.text) return;
+    await DatabaseHelper.instance.updatePresetActivity(preset.id, text);
+    if (!mounted) return;
+    setState(() {
+      _presets = _presets
+          .map((p) => p.id == preset.id ? PresetActivity(id: p.id, text: text) : p)
+          .toList();
+    });
+  }
+
+  Future<void> _deletePreset(PresetActivity preset) async {
+    await DatabaseHelper.instance.deletePresetActivity(preset.id);
+    if (!mounted) return;
+    setState(() => _presets = _presets.where((p) => p.id != preset.id).toList());
+  }
+
+  Future<String?> _promptForActivityText({required String title, String? initial}) async {
+    final controller = TextEditingController(text: initial);
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Tätigkeit'),
+          onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Speichern'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final quickCustomers =
         _knownCustomers.where((n) => n != _nameController.text).take(8).toList();
-    final quickActivities = _recentActivities
+    final quickTopActivities = _topActivities
         .where((a) => a != _activityController.text)
         .take(6)
         .toList();
@@ -229,6 +320,28 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                 ),
               ],
             ),
+            if (!_isWerkstatt) ...[
+              const SizedBox(height: 12),
+              Text('PAUSE', style: AppTextStyles.eyebrow(AppColors.inkMuted)),
+              const SizedBox(height: 6),
+              SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 0, label: Text('Keine'), icon: Icon(Icons.block)),
+                  ButtonSegment(
+                    value: 15,
+                    label: Text('Frühstück · 15 Min.'),
+                    icon: Icon(Icons.free_breakfast_outlined),
+                  ),
+                  ButtonSegment(
+                    value: 30,
+                    label: Text('Mittag · 30 Min.'),
+                    icon: Icon(Icons.lunch_dining_outlined),
+                  ),
+                ],
+                selected: {_breakMinutes},
+                onSelectionChanged: (s) => setState(() => _breakMinutes = s.first),
+              ),
+            ],
             const SizedBox(height: 10),
             Row(
               children: [
@@ -262,15 +375,72 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
               textCapitalization: TextCapitalization.sentences,
               onChanged: (_) => setState(() {}),
             ),
-            if (quickActivities.isNotEmpty) ...[
-              const SizedBox(height: 8),
+            if (_isWerkstatt) ...[
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('DEINE VORLAGEN', style: AppTextStyles.eyebrow(AppColors.inkMuted)),
+                  InkWell(
+                    onTap: _addPreset,
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.add, size: 15, color: AppColors.amber),
+                          const SizedBox(width: 2),
+                          Text(
+                            'Neu',
+                            style: TextStyle(
+                              color: AppColors.amber,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              if (_presets.isEmpty)
+                Text(
+                  'Noch keine Vorlagen - über "Neu" anlegen.',
+                  style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                )
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: _presets
+                      .map(
+                        (preset) => GestureDetector(
+                          onLongPress: () => _editPreset(preset),
+                          child: InputChip(
+                            label: Text(preset.text),
+                            onPressed: () {
+                              _activityController.text = preset.text;
+                              setState(() {});
+                            },
+                            onDeleted: () => _deletePreset(preset),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+            ],
+            if (quickTopActivities.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text('HÄUFIG VERWENDET', style: AppTextStyles.eyebrow(AppColors.inkMuted)),
+              const SizedBox(height: 6),
               Wrap(
                 spacing: 8,
                 runSpacing: 4,
-                children: quickActivities
+                children: quickTopActivities
                     .map(
                       (activity) => ActionChip(
-                        avatar: const Icon(Icons.history, size: 16),
+                        avatar: const Icon(Icons.trending_up, size: 16),
                         label: Text(activity),
                         onPressed: () {
                           _activityController.text = activity;

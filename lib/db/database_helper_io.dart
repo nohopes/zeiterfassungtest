@@ -3,6 +3,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sembast/sembast.dart';
 import 'package:sembast/sembast_io.dart';
 
+import '../models/preset_activity.dart';
 import '../models/time_entry.dart';
 
 /// Kapselt den Zugriff auf die lokale Datenbank - für native Plattformen
@@ -17,6 +18,7 @@ class DatabaseHelper {
 
   static const _dbFileName = 'zeiterfassung.db';
   final _store = intMapStoreFactory.store('time_entries');
+  final _presetStore = intMapStoreFactory.store('preset_activities');
 
   Database? _db;
 
@@ -138,6 +140,47 @@ class DatabaseHelper {
       }
     }
     return result;
+  }
+
+  /// Die 5 (o. Ä.) häufigsten Tätigkeitstexte über alle Einträge hinweg -
+  /// im Gegensatz zu [recentActivities] zählt hier die Häufigkeit, nicht
+  /// der Zeitpunkt der letzten Verwendung.
+  Future<List<String>> topActivities({int limit = 5}) async {
+    final db = await database;
+    final records = await _store.find(db);
+    final counts = <String, int>{};
+    for (final r in records) {
+      final activity = (r.value['activity'] as String? ?? '').trim();
+      if (activity.isEmpty) continue;
+      counts[activity] = (counts[activity] ?? 0) + 1;
+    }
+    final sorted = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.take(limit).map((e) => e.key).toList();
+  }
+
+  /// Vom Nutzer selbst angelegte Tätigkeits-Vorlagen (siehe [PresetActivity]).
+  Future<List<PresetActivity>> presetActivities() async {
+    final db = await database;
+    final records = await _presetStore.find(db);
+    return records
+        .map((r) => PresetActivity.fromMap({...r.value, 'id': r.key}))
+        .toList();
+  }
+
+  Future<int> addPresetActivity(String text) async {
+    final db = await database;
+    return _presetStore.add(db, {'text': text});
+  }
+
+  Future<void> updatePresetActivity(int id, String text) async {
+    final db = await database;
+    await _presetStore.record(id).update(db, {'text': text});
+  }
+
+  Future<void> deletePresetActivity(int id) async {
+    final db = await database;
+    await _presetStore.record(id).delete(db);
   }
 
   /// Sucht Einträge, deren Kunde/Werkstatt-Name oder Tätigkeit den

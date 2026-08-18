@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:bcrypt/bcrypt.dart';
 import 'package:sembast/sembast.dart';
@@ -9,6 +11,9 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
+import 'package:zeiterfassung_server/web_push.dart' as web_push;
 
 /// Backend-Server für die Zeiterfassung-PWA.
 ///
@@ -24,9 +29,22 @@ import 'package:shelf_static/shelf_static.dart';
 final _store = intMapStoreFactory.store('time_entries');
 final _usersStore = intMapStoreFactory.store('users');
 final _sessionsStore = stringMapStoreFactory.store('sessions');
+final _presetActivitiesStore = intMapStoreFactory.store('preset_activities');
+final _pushSubscriptionsStore = intMapStoreFactory.store('push_subscriptions');
 
 late Database _db;
 late String _webDir;
+
+// --- Push-Benachrichtigungen (siehe lib/web_push.dart) --------------------
+//
+// Erinnert Mo-Fr um 16:30 (Europe/Berlin) jeden Nutzer ohne heutigen
+// Eintrag. Ohne VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY bleibt die Funktion
+// komplett deaktiviert (kein Fehler, nur eine Warnung im Log) - der Server
+// läuft dann ganz normal ohne Push weiter.
+web_push.ECPrivateKey? _vapidPrivateKey;
+String? _vapidPublicKeyRaw;
+String _vapidSubject = 'mailto:kontakt@example.com';
+DateTime? _lastReminderRunDate;
 
 Future<void> main() async {
   final port = int.tryParse(Platform.environment['PORT'] ?? '') ?? 8080;
@@ -39,6 +57,9 @@ Future<void> main() async {
   }
   _db = await databaseFactoryIo.openDatabase('$dataDir/zeiterfassung.db');
   await _ensureAdminBootstrap();
+  tz_data.initializeTimeZones();
+  _initPush();
+  _startReminderScheduler();
 
   final router = Router()
     ..post('/api/auth/login', _login)
@@ -51,6 +72,15 @@ Future<void> main() async {
     ..get('/api/entries/month', _entriesForMonth)
     ..get('/api/entries/range', _entriesForRange)
     ..get('/api/recent-activities', _recentActivities)
+    ..get('/api/top-activities', _topActivities)
+    ..get('/api/preset-activities', _listPresetActivities)
+    ..post('/api/preset-activities', _createPresetActivity)
+    ..put('/api/preset-activities/<id>', _updatePresetActivity)
+    ..delete('/api/preset-activities/<id>', _deletePresetActivity)
+    ..get('/api/push/public-key', _pushPublicKey)
+    ..post('/api/push/subscribe', _pushSubscribe)
+    ..post('/api/push/unsubscribe', _pushUnsubscribe)
+    ..post('/api/push/test', _pushTest)
     ..get('/api/search', _search)
     ..get('/api/customers', _customers)
     ..post('/api/entries', _insertEntry)
@@ -390,6 +420,325 @@ Future<Response> _recentActivities(Request request) async {
     }
   }
   return Response.ok(jsonEncode(result), headers: {'content-type': 'application/json'});
+}
+
+/// Die häufigsten Tätigkeitstexte über alle Einträge des Nutzers hinweg
+/// (im Gegensatz zu [_recentActivities], die nach Zeitpunkt sortiert).
+Future<Response> _topActivities(Request request) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+
+  final limit = int.tryParse(request.url.queryParameters['limit'] ?? '') ?? 5;
+  final records = await _store.find(_db, finder: Finder(filter: Filter.equals('userId', userId)));
+  final counts = <String, int>{};
+  for (final r in records) {
+    final activity = (r.value['activity'] as String? ?? '').trim();
+    if (activity.isEmpty) continue;
+    counts[activity] = (counts[activity] ?? 0) + 1;
+  }
+  final sorted = counts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+  final result = sorted.take(limit).map((e) => e.key).toList();
+  return Response.ok(jsonEncode(result), headers: {'content-type': 'application/json'});
+}
+
+// --- Tätigkeits-Vorlagen (jeder Nutzer verwaltet seine eigenen) -------
+
+Future<Response> _listPresetActivities(Request request) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+
+  final records = await _presetActivitiesStore.find(
+    _db,
+    finder: Finder(filter: Filter.equals('userId', userId)),
+  );
+  final list = records.map((r) => {'id': r.key, 'text': r.value['text']}).toList();
+  return Response.ok(jsonEncode(list), headers: {'content-type': 'application/json'});
+}
+
+Future<Response> _createPresetActivity(Request request) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+
+  final body = await request.readAsString();
+  final map = jsonDecode(body) as Map<String, dynamic>;
+  final text = (map['text'] as String? ?? '').trim();
+  if (text.isEmpty) return _badRequest('Text darf nicht leer sein');
+
+  final id = await _presetActivitiesStore.add(_db, {'userId': userId, 'text': text});
+  return Response.ok(jsonEncode({'id': id, 'text': text}), headers: {'content-type': 'application/json'});
+}
+
+Future<Response> _updatePresetActivity(Request request, String id) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+
+  final parsedId = int.tryParse(id);
+  if (parsedId == null) return _badRequest('ungültige id');
+
+  final existing = await _presetActivitiesStore.record(parsedId).get(_db);
+  if (existing == null || existing['userId'] != userId) {
+    return Response.notFound(
+      jsonEncode({'error': 'Vorlage nicht gefunden'}),
+      headers: {'content-type': 'application/json'},
+    );
+  }
+
+  final body = await request.readAsString();
+  final map = jsonDecode(body) as Map<String, dynamic>;
+  final text = (map['text'] as String? ?? '').trim();
+  if (text.isEmpty) return _badRequest('Text darf nicht leer sein');
+
+  await _presetActivitiesStore.record(parsedId).update(_db, {'userId': userId, 'text': text});
+  return Response.ok(jsonEncode({'ok': true}), headers: {'content-type': 'application/json'});
+}
+
+Future<Response> _deletePresetActivity(Request request, String id) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+
+  final parsedId = int.tryParse(id);
+  if (parsedId == null) return _badRequest('ungültige id');
+
+  final existing = await _presetActivitiesStore.record(parsedId).get(_db);
+  if (existing == null || existing['userId'] != userId) {
+    return Response.notFound(
+      jsonEncode({'error': 'Vorlage nicht gefunden'}),
+      headers: {'content-type': 'application/json'},
+    );
+  }
+
+  await _presetActivitiesStore.record(parsedId).delete(_db);
+  return Response.ok(jsonEncode({'ok': true}), headers: {'content-type': 'application/json'});
+}
+
+// --- Push-Benachrichtigungen --------------------------------------------
+
+/// Lädt die VAPID-Schlüssel aus den Umgebungsvariablen. Ohne gültige
+/// Schlüssel bleiben Push-Benachrichtigungen komplett deaktiviert - der
+/// Server läuft trotzdem ganz normal weiter (nur eine Warnung im Log).
+void _initPush() {
+  final publicKey = Platform.environment['VAPID_PUBLIC_KEY'];
+  final privateKey = Platform.environment['VAPID_PRIVATE_KEY'];
+  final subject = Platform.environment['VAPID_SUBJECT'];
+  if (publicKey == null ||
+      privateKey == null ||
+      publicKey.trim().isEmpty ||
+      privateKey.trim().isEmpty) {
+    // ignore: avoid_print
+    print(
+      'Hinweis: VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY nicht gesetzt - '
+      'Push-Benachrichtigungen sind deaktiviert.',
+    );
+    return;
+  }
+  try {
+    _vapidPrivateKey = web_push.vapidPrivateKeyFromBase64Url(privateKey.trim());
+    _vapidPublicKeyRaw = publicKey.trim();
+    if (subject != null && subject.trim().isNotEmpty) _vapidSubject = subject.trim();
+    // ignore: avoid_print
+    print('Push-Benachrichtigungen aktiviert.');
+  } catch (e) {
+    // ignore: avoid_print
+    print('WARNUNG: VAPID-Schlüssel ungültig ($e) - Push-Benachrichtigungen sind deaktiviert.');
+  }
+}
+
+/// Prüft jede Minute, ob gerade Mo-Fr 16:30 Uhr (Europe/Berlin) ist, und
+/// verschickt dann höchstens einmal pro Tag die Erinnerungen.
+void _startReminderScheduler() {
+  if (_vapidPrivateKey == null) return;
+  Timer.periodic(const Duration(minutes: 1), (_) async {
+    final berlin = tz.getLocation('Europe/Berlin');
+    final now = tz.TZDateTime.now(berlin);
+    final isWeekday = now.weekday >= DateTime.monday && now.weekday <= DateTime.friday;
+    final isReminderTime = now.hour == 16 && now.minute == 30;
+    final today = DateTime(now.year, now.month, now.day);
+    if (isWeekday && isReminderTime && _lastReminderRunDate != today) {
+      _lastReminderRunDate = today;
+      try {
+        await _sendMissingEntryReminders();
+      } catch (e) {
+        // ignore: avoid_print
+        print('Fehler beim Versand der Tages-Erinnerungen: $e');
+      }
+    }
+  });
+}
+
+/// Schickt jedem Nutzer ohne heutigen Eintrag (Europe/Berlin-Datum) eine
+/// Erinnerung an alle seine registrierten Geräte/Browser.
+Future<void> _sendMissingEntryReminders() async {
+  final berlin = tz.getLocation('Europe/Berlin');
+  final now = tz.TZDateTime.now(berlin);
+  final todayIso = DateTime(now.year, now.month, now.day).toIso8601String();
+
+  final allUsers = await _usersStore.find(_db);
+  for (final userRecord in allUsers) {
+    final userId = userRecord.key;
+    final todaysEntries = await _store.find(
+      _db,
+      finder: Finder(
+        filter: Filter.and([
+          Filter.equals('userId', userId),
+          Filter.equals('date', todayIso),
+        ]),
+      ),
+    );
+    if (todaysEntries.isNotEmpty) continue;
+
+    await _sendPushToUser(
+      userId,
+      title: 'Stunden Logbuch',
+      body: 'Für heute fehlt noch ein Eintrag im Logbuch.',
+    );
+  }
+}
+
+/// Verschickt eine Push-Benachrichtigung an alle Geräte/Browser eines
+/// Nutzers. Abgelaufene/ungültige Abos (410/404 vom Push-Dienst) werden
+/// automatisch entfernt.
+Future<void> _sendPushToUser(int userId, {required String title, required String body}) async {
+  if (_vapidPrivateKey == null || _vapidPublicKeyRaw == null) return;
+
+  final subs = await _pushSubscriptionsStore.find(
+    _db,
+    finder: Finder(filter: Filter.equals('userId', userId)),
+  );
+  if (subs.isEmpty) return;
+
+  final payload = utf8.encode(jsonEncode({'title': title, 'body': body}));
+
+  for (final subRecord in subs) {
+    final statusCode = await _sendPushToSubscription(subRecord.value, payload);
+    if (statusCode == 404 || statusCode == 410) {
+      await _pushSubscriptionsStore.record(subRecord.key).delete(_db);
+    }
+  }
+}
+
+/// Sendet eine einzelne verschlüsselte Push-Nachricht an einen
+/// Push-Endpunkt. Gibt den HTTP-Statuscode der Antwort zurück (oder -1 bei
+/// einem Netzwerkfehler).
+Future<int> _sendPushToSubscription(Map<String, Object?> sub, List<int> payload) async {
+  final endpoint = sub['endpoint'] as String;
+  final p256dh = sub['p256dh'] as String;
+  final auth = sub['auth'] as String;
+
+  try {
+    final encryptedBody = web_push.encryptWebPush(
+      subscriberPublicKeyBytes: web_push.decodeBase64UrlField(p256dh),
+      subscriberAuthSecret: web_push.decodeBase64UrlField(auth),
+      plaintext: Uint8List.fromList(payload),
+    );
+
+    final endpointUri = Uri.parse(endpoint);
+    final audience = '${endpointUri.scheme}://${endpointUri.host}'
+        '${endpointUri.hasPort ? ':${endpointUri.port}' : ''}';
+    final jwt = web_push.buildVapidJwt(
+      privateKey: _vapidPrivateKey!,
+      audience: audience,
+      subject: _vapidSubject,
+    );
+
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(endpointUri);
+      request.headers.set('Authorization', 'vapid t=$jwt, k=$_vapidPublicKeyRaw');
+      request.headers.set('Content-Encoding', 'aes128gcm');
+      request.headers.contentType = ContentType('application', 'octet-stream');
+      request.headers.set('TTL', '86400');
+      request.contentLength = encryptedBody.length;
+      request.add(encryptedBody);
+      final response = await request.close();
+      await response.drain<void>();
+      return response.statusCode;
+    } finally {
+      client.close();
+    }
+  } catch (e) {
+    // ignore: avoid_print
+    print('Push-Versand fehlgeschlagen: $e');
+    return -1;
+  }
+}
+
+Future<Response> _pushPublicKey(Request request) async {
+  return Response.ok(
+    jsonEncode({'publicKey': _vapidPublicKeyRaw}),
+    headers: {'content-type': 'application/json'},
+  );
+}
+
+Future<Response> _pushSubscribe(Request request) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+  if (_vapidPublicKeyRaw == null) return _badRequest('Push ist auf diesem Server nicht aktiviert');
+
+  final body = await request.readAsString();
+  final map = jsonDecode(body) as Map<String, dynamic>;
+  final endpoint = map['endpoint'] as String?;
+  final keys = map['keys'] as Map<String, dynamic>?;
+  final p256dh = keys?['p256dh'] as String?;
+  final auth = keys?['auth'] as String?;
+  if (endpoint == null || p256dh == null || auth == null) {
+    return _badRequest('endpoint/keys fehlen');
+  }
+
+  // Ein evtl. schon vorhandenes Abo mit demselben Endpoint ersetzen statt
+  // zu duplizieren (z. B. wenn der Browser die Schlüssel rotiert hat).
+  await _deleteSubscriptionsForEndpoint(userId, endpoint);
+  await _pushSubscriptionsStore.add(_db, {
+    'userId': userId,
+    'endpoint': endpoint,
+    'p256dh': p256dh,
+    'auth': auth,
+  });
+  return Response.ok(jsonEncode({'ok': true}), headers: {'content-type': 'application/json'});
+}
+
+Future<Response> _pushUnsubscribe(Request request) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+
+  final body = await request.readAsString();
+  final map = jsonDecode(body) as Map<String, dynamic>;
+  final endpoint = map['endpoint'] as String?;
+  if (endpoint == null) return _badRequest('endpoint fehlt');
+
+  await _deleteSubscriptionsForEndpoint(userId, endpoint);
+  return Response.ok(jsonEncode({'ok': true}), headers: {'content-type': 'application/json'});
+}
+
+Future<void> _deleteSubscriptionsForEndpoint(int userId, String endpoint) async {
+  final existing = await _pushSubscriptionsStore.find(
+    _db,
+    finder: Finder(
+      filter: Filter.and([
+        Filter.equals('userId', userId),
+        Filter.equals('endpoint', endpoint),
+      ]),
+    ),
+  );
+  for (final e in existing) {
+    await _pushSubscriptionsStore.record(e.key).delete(_db);
+  }
+}
+
+/// Verschickt sofort eine Test-Benachrichtigung an den eingeloggten Nutzer -
+/// so lässt sich der komplette Weg (Abo -> Verschlüsselung -> Versand ->
+/// Service-Worker) direkt nach dem Aktivieren prüfen, ohne bis 16:30 zu
+/// warten.
+Future<Response> _pushTest(Request request) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+  if (_vapidPrivateKey == null) return _badRequest('Push ist auf diesem Server nicht aktiviert');
+
+  await _sendPushToUser(
+    userId,
+    title: 'Stunden Logbuch',
+    body: 'Test-Benachrichtigung - wenn du das hier siehst, funktioniert alles!',
+  );
+  return Response.ok(jsonEncode({'ok': true}), headers: {'content-type': 'application/json'});
 }
 
 Future<Response> _search(Request request) async {

@@ -11,7 +11,16 @@ Lokale Zeiterfassungs-App für iOs (Flutter). Zwei Arten von Einträgen:
 
 Die Dauer wird aus Start-/Endzeit automatisch berechnet und kaufmännisch auf
 0,25-Stunden-Schritte gerundet (0,25 / 0,5 / 0,75 / 1,0 …), genau wie in
-deinem Beispiel (7:00–7:30 → 0,5 Std.).
+deinem Beispiel (7:00–7:30 → 0,5 Std.). Beim Setzen der Startzeit springt
+die Zielzeit automatisch auf mindestens Start + 15 Minuten mit, damit nie
+aus Versehen eine ungültige/zu knappe Endzeit stehen bleibt.
+
+Bei Kunden-Einträgen lässt sich zusätzlich eine Pause auswählen (keine /
+Frühstück 15 Min. / Mittag 30 Min.), die von der Arbeitszeit abgezogen
+wird. Bei der Tätigkeit gibt es zwei Arten von Vorschlägen: selbst
+angelegte Vorlagen (unter Werkstatt anlegen/bearbeiten/löschen, über
+"Neu" bzw. per langem Tippen auf eine Vorlage) und automatisch ermittelte
+"häufig verwendet"-Vorschläge (die 5 meistgenutzten Tätigkeitstexte).
 
 Auf iPhone/Windows/macOS/Linux werden alle Daten **lokal** auf dem Gerät
 gespeichert (kein Server, keine Internetverbindung nötig) - über `sembast`,
@@ -110,6 +119,54 @@ kannst du dich danach im "Konto"-Tab der App einloggen und dort über
 "Neuen Kollegen anlegen" weitere Nutzer (optional auch mit Admin-Rechten)
 hinzufügen - eine eigene Admin-Oberfläche außerhalb der App gibt es
 bewusst nicht.
+
+**Wo liegen die Login-Daten?** Alle Daten (Einträge, Nutzerkonten,
+Sitzungen) landen in EINER Datei: `zeiterfassung.db` im Docker-Volume
+(`/data`, bei dir `/mnt/user/appdata/zeiterfassung/zeiterfassung.db`).
+Das ist keine SQLite-Datei, sondern eine sembast-Datenbank - die verwaltet
+intern mehrere getrennte "Tabellen" (genannt Stores: `time_entries`,
+`users`, `sessions`, ...) in dieser einen Datei. Passwörter stehen dort
+NIE im Klartext, sondern nur als bcrypt-Hash (eine Einwegverschlüsselung -
+selbst mit Zugriff auf die Datei lässt sich das Passwort daraus nicht
+zurückrechnen). Aktive Login-Sitzungen (Tokens) liegen dort dagegen als
+Klartext - wer Zugriff auf diese Datei hat, könnte sich mit einem noch
+gültigen Token als der jeweilige Nutzer ausgeben (bis zum Logout). Das ist
+der übliche Kompromiss bei Bearer-Token-Login; relevant ist er nur, wenn
+jemand direkten Zugriff auf deinen unRAID-Server/Docker-Volume bekommt -
+also derselbe Vertrauensbereich wie beim restlichen Server ohnehin. Die
+GLEICHNAMIGE Datei `zeiterfassung.db` auf deinem iPhone/Windows-Gerät
+(lokale Variante) ist eine komplett andere, separate Datei ohne jedes
+Login - dort gibt es kein Nutzerkonto-Konzept, nur deine eigenen
+Einträge.
+
+### Push-Erinnerungen (optional)
+
+Die Web/PWA-Variante kann werktags um 16:30 Uhr (Europe/Berlin) an alle
+Nutzer erinnern, die für den Tag noch keinen Eintrag im Logbuch haben -
+klassische Browser-Push-Benachrichtigung, funktioniert auch wenn die App
+gerade nicht offen ist (sofern sie einmal zum Home-Bildschirm hinzugefügt
+bzw. die Berechtigung erteilt wurde).
+
+Dafür braucht der Server ein eigenes Schlüsselpaar (VAPID), das ihn beim
+Push-Versand gegenüber Browsern ausweist. Setze dazu drei zusätzliche
+Umgebungsvariablen im Container (z. B. in `docker-compose.yml` oder im
+unRAID-Container-Template):
+
+```
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:deine-email@example.com
+```
+
+Ein fertiges, für dich einmalig erzeugtes Schlüsselpaar bekommst du separat
+von mir im Chat (nicht in eine Datei/den Git-Verlauf schreiben - das sind
+Geheimnisse wie ein Passwort). Ohne diese drei Variablen bleibt die
+Funktion einfach deaktiviert, der Rest der App läuft normal weiter.
+
+Aktivieren kann jeder Nutzer die Erinnerungen selbst im "Konto"-Tab über
+"Erinnerungen aktivieren" (fragt einmalig die Browser-Berechtigung ab) -
+darunter gibt es auch "Test-Benachrichtigung senden", um den ganzen Weg
+sofort zu prüfen, ohne bis 16:30 Uhr zu warten.
 
 Das Bauen (Flutter-SDK + Dart-Compiler) passiert komplett in
 GitHub Actions - kostenlos, genau wie beim iOS-Build. unRAID muss dadurch
@@ -227,21 +284,25 @@ Danach unter `http://localhost:8080` erreichbar, Daten landen im Ordner
 zeiterfassung/
   lib/
     models/time_entry.dart        # Datenmodell + Umrechnung Map<->Objekt
-    utils/time_rounding.dart      # Dauer-Berechnung & 0,25h-Rundung
+    models/preset_activity.dart   # Datenmodell für selbst angelegte Tätigkeits-Vorlagen
+    utils/time_rounding.dart      # Dauer-Berechnung, 0,25h-Rundung, Zeit-Arithmetik
     db/database_helper.dart       # Fassade: wählt io- oder web-Implementierung
     db/database_helper_io.dart    # lokale sembast-Datenbank (iOS/Windows/macOS/Linux)
     db/database_helper_web.dart   # REST-Client fürs Backend (Web/PWA), inkl. Auth-Header
     auth/auth_gate.dart           # Fassade: Login-Zwang nur für Web/PWA
     services/auth_service.dart    # Login-Status, Token-Speicherung (Web/PWA)
+    services/push_service.dart    # Push-Erinnerungen an-/abmelden (Fassade io/web)
     services/pdf_export_service.dart  # PDF-Export (Werkstatt + Gesamtbericht)
     screens/home_screen.dart      # Tagesansicht
-    screens/add_entry_screen.dart # Eintrag anlegen/bearbeiten
+    screens/add_entry_screen.dart # Eintrag anlegen/bearbeiten, Vorlagen, Pause
     screens/month_overview_screen.dart # Monatsübersicht + PDF-Export
     screens/login_screen.dart     # Login-Formular (Web/PWA)
-    screens/account_screen.dart   # Konto/Nutzerverwaltung (Fassade io/web)
+    screens/account_screen.dart   # Konto/Nutzerverwaltung/Erinnerungen (Fassade io/web)
     main.dart
+  web/push/push-sw.js             # Eigener Service-Worker nur für Push (Web/PWA)
   server/                          # Backend für die PWA (reines Dart, kein Flutter)
     bin/server.dart                 # REST-API + Ausliefern der Web-App + sembast-Speicherung
+    lib/web_push.dart               # VAPID-Signatur + RFC-8291-Verschlüsselung (reines Dart)
     pubspec.yaml
   pubspec.yaml
   codemagic.yaml                  # Cloud-Build-Konfiguration (Apple Developer Program)

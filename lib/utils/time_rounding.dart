@@ -41,3 +41,11 @@ String formatTimeOfDay(TimeOfDay t) {
   final minute = t.minute.toString().padLeft(2, '0');
   return '$hour:$minute';
 }
+
+/// Addiert Minuten auf eine TimeOfDay, mit Wrap-around über Mitternacht
+/// (z. B. 23:50 + 15 Min. -> 00:05).
+TimeOfDay addMinutesToTimeOfDay(TimeOfDay t, int minutes) {
+  final total = (t.hour * 60 + t.minute + minutes) % (24 * 60);
+  final wrapped = total < 0 ? total + 24 * 60 : total;
+  return TimeOfDay(hour: wrapped ~/ 60, minute: wrapped % 60);
+}

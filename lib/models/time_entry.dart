@@ -20,6 +20,11 @@ class TimeEntry {
   final TimeOfDay endTime;
   final String activity;
 
+  /// Pausenzeit in Minuten, die von der Arbeitszeit abgezogen wird (z. B.
+  /// 15 = Frühstückspause, 30 = Mittagspause, 0 = keine Pause). Nur bei
+  /// Kunden-Einträgen relevant - bei Werkstatt-Einträgen immer 0.
+  final int breakMinutes;
+
   TimeEntry({
     this.id,
     required DateTime date,
@@ -28,11 +33,16 @@ class TimeEntry {
     required this.startTime,
     required this.endTime,
     required this.activity,
+    this.breakMinutes = 0,
   }) : date = DateTime(date.year, date.month, date.day);
 
-  /// Gerundete Dauer in Dezimalstunden (0,25-Schritte).
-  double get durationHours =>
-      roundDurationToQuarterHours(calculateDuration(startTime, endTime));
+  /// Gerundete Dauer in Dezimalstunden (0,25-Schritte), abzüglich einer
+  /// evtl. gewählten Pause. Wird nie negativ.
+  double get durationHours {
+    final raw = calculateDuration(startTime, endTime);
+    final net = raw - Duration(minutes: breakMinutes);
+    return roundDurationToQuarterHours(net.isNegative ? Duration.zero : net);
+  }
 
   TimeEntry copyWith({
     int? id,
@@ -42,6 +52,7 @@ class TimeEntry {
     TimeOfDay? startTime,
     TimeOfDay? endTime,
     String? activity,
+    int? breakMinutes,
   }) {
     return TimeEntry(
       id: id ?? this.id,
@@ -51,6 +62,7 @@ class TimeEntry {
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       activity: activity ?? this.activity,
+      breakMinutes: breakMinutes ?? this.breakMinutes,
     );
   }
 
@@ -65,6 +77,7 @@ class TimeEntry {
       'endHour': endTime.hour,
       'endMinute': endTime.minute,
       'activity': activity,
+      'breakMinutes': breakMinutes,
     };
   }
 
@@ -90,6 +103,9 @@ class TimeEntry {
         minute: map['endMinute'] as int,
       ),
       activity: map['activity'] as String,
+      // ?? 0 - ältere, schon gespeicherte Einträge kennen dieses Feld noch
+      // nicht (Feld wurde nachträglich ergänzt).
+      breakMinutes: (map['breakMinutes'] as int?) ?? 0,
     );
   }
 }
