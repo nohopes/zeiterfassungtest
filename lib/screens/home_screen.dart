@@ -225,8 +225,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
           ),
-          if (!_loading && _entries.isNotEmpty)
-            Container(
+        ],
+      ),
+      // Bewusst als bottomNavigationBar statt als letztes Listenelement:
+      // so schiebt Flutter den FloatingActionButton automatisch darüber,
+      // statt dass er die Tagessumme überdeckt.
+      bottomNavigationBar: (!_loading && _entries.isNotEmpty)
+          ? Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: const BoxDecoration(
@@ -243,9 +248,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   StampBadge(hours: _dayTotal),
                 ],
               ),
-            ),
-        ],
-      ),
+            )
+          : null,
       floatingActionButton: FloatingActionButton(
         onPressed: () => _openAddEntry(),
         tooltip: 'Neuer Eintrag',

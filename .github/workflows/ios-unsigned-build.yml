@@ -10,8 +10,8 @@ name: iOS Unsigned Build (für Sideloadly)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+  # Läuft bewusst NICHT mehr automatisch bei jedem Push (spart macOS-
+  # Runner-Minuten) - Start nur noch manuell über "Run workflow".
 
 jobs:
   build-unsigned-ipa:

@@ -13,10 +13,12 @@ class MonthOverviewScreen extends StatefulWidget {
   const MonthOverviewScreen({super.key});
 
   @override
-  State<MonthOverviewScreen> createState() => _MonthOverviewScreenState();
+  State<MonthOverviewScreen> createState() => MonthOverviewScreenState();
 }
 
-class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
+/// Nicht mehr privat, damit RootShell (via GlobalKey) [reload] aufrufen
+/// kann, wenn der Monats-Tab angetippt wird - siehe Kommentar dort.
+class MonthOverviewScreenState extends State<MonthOverviewScreen> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   List<TimeEntry> _entries = [];
   bool _loading = true;
@@ -39,6 +41,13 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
       _loading = false;
     });
   }
+
+  /// Öffentlich aufrufbar, damit RootShell den Monat neu laden kann, wenn
+  /// der Nutzer auf den "Monat"-Tab wechselt - der Screen bleibt dank
+  /// IndexedStack sonst dauerhaft im Speicher und würde neue Einträge aus
+  /// anderen Tabs (z. B. Werkstatt-Eintrag über "Tag" angelegt) nicht von
+  /// selbst mitbekommen.
+  Future<void> reload() => _load();
 
   void _changeMonth(int delta) {
     setState(() {

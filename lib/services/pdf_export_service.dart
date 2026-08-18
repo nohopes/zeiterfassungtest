@@ -98,7 +98,7 @@ class PdfExportService {
                   pw.TableRow(
                     children: [
                       _cell(DateFormat('EEE, dd.MM.yyyy', 'de_DE').format(e.date)),
-                      _cell('${_fmtTime(e.startTime)}–${_fmtTime(e.endTime)}'),
+                      _cell('${_fmtTime(e.startTime)} - ${_fmtTime(e.endTime)}'),
                       _cell('${formatHours(e.durationHours)} Std.'),
                       _cell(e.activity),
                     ],
@@ -207,7 +207,7 @@ class PdfExportService {
                     children: [
                       _cell(DateFormat('EEE, dd.MM.yyyy', 'de_DE').format(e.date)),
                       _cell(e.name),
-                      _cell('${_fmtTime(e.startTime)}–${_fmtTime(e.endTime)}'),
+                      _cell('${_fmtTime(e.startTime)} - ${_fmtTime(e.endTime)}'),
                       _cell('${formatHours(e.durationHours)} Std.'),
                       _cell(e.activity),
                     ],
