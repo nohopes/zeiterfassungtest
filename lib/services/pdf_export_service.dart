@@ -10,14 +10,39 @@ import '../models/time_entry.dart';
 import '../utils/time_rounding.dart';
 
 /// Erstellt und teilt PDF-Berichte. Der offizielle Werkstatt-Bericht ist
-/// bewusst nur noch wochenweise verfügbar (siehe [exportAndShareWerkstattWeek])
-/// - der frühere monatliche Werkstatt-Export wurde entfernt, damit es nur
-/// noch EIN Werkstatt-PDF-Format gibt.
+/// bewusst nur noch EIN einziges PDF-Format - ein einzelner Knopf pro
+/// Monat, keine Wochen-Navigation, keine separate Vorschau-Seite.
 class PdfExportService {
+  /// Erstellt und teilt den monatlichen Werkstatt-Bericht - Datum, Uhrzeit,
+  /// Dauer, Tätigkeit, dazu eine Spalte "Eingetragen Büro" zum manuellen
+  /// Abhaken sowie Name und (falls im Profil hinterlegt) Unterschrift.
+  /// Kunden-Einträge fließen bewusst NICHT mit ein, da sie nur zur eigenen
+  /// Kontrolle dienen.
+  static Future<void> exportAndShareWerkstattMonth({
+    required int year,
+    required int month,
+    required List<TimeEntry> entries,
+    String? authorName,
+    Uint8List? signatureBytes,
+  }) async {
+    final bytes = await _buildPdf(
+      year: year,
+      month: month,
+      entries: entries,
+      authorName: authorName,
+      signatureBytes: signatureBytes,
+    );
+    final fileLabel = DateFormat('yyyy-MM').format(DateTime(year, month));
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: 'Werkstattstunden_$fileLabel.pdf',
+    );
+  }
+
   /// Erstellt und teilt einen vollständigen Monatsbericht - ALLE Einträge
   /// (Werkstatt UND Kunden), gruppiert nach Kunde/Werkstatt mit
   /// Zwischensummen. Gedacht als persönliche Sicherung/Übersicht, nicht als
-  /// offizielles Werkstatt-Dokument (dafür [exportAndShareWerkstattWeek]
+  /// offizielles Werkstatt-Dokument (dafür [exportAndShareWerkstattMonth]
   /// verwenden).
   static Future<void> exportAndShareFullMonth({
     required int year,
@@ -29,28 +54,6 @@ class PdfExportService {
     await Printing.sharePdf(
       bytes: bytes,
       filename: 'Gesamtbericht_$fileLabel.pdf',
-    );
-  }
-
-  /// Erstellt und teilt den wöchentlichen Werkstatt-Bericht - inkl. Kalender-
-  /// woche (KW) im Titel, einer Kontrollspalte zum Abhaken durch das Büro,
-  /// sowie Name und (falls im Profil hinterlegt) Unterschrift.
-  static Future<void> exportAndShareWerkstattWeek({
-    required DateTime weekStart,
-    required List<TimeEntry> entries,
-    String? authorName,
-    Uint8List? signatureBytes,
-  }) async {
-    final bytes = await _buildWeekPdf(
-      weekStart: weekStart,
-      entries: entries,
-      authorName: authorName,
-      signatureBytes: signatureBytes,
-    );
-    final fileLabel = DateFormat('yyyy-MM-dd').format(weekStart);
-    await Printing.sharePdf(
-      bytes: bytes,
-      filename: 'Werkstatt_Wochenbericht_$fileLabel.pdf',
     );
   }
 
@@ -163,21 +166,18 @@ class PdfExportService {
     return doc.save();
   }
 
-  static Future<Uint8List> _buildWeekPdf({
-    required DateTime weekStart,
+  static Future<Uint8List> _buildPdf({
+    required int year,
+    required int month,
     required List<TimeEntry> entries,
     String? authorName,
     Uint8List? signatureBytes,
   }) async {
-    final weekEnd = weekStart.add(const Duration(days: 6));
     final werkstattEntries = entries.where((e) => e.isWerkstatt).toList()
       ..sort(_byDateAndStart);
 
     final doc = pw.Document();
-    final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(weekStart);
-    final kw = isoWeekNumber(weekStart);
-    final rangeLabel =
-        '${DateFormat('dd.MM.').format(weekStart)}–${DateFormat('dd.MM.').format(weekEnd)}';
+    final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(DateTime(year, month));
     final totalHours =
         werkstattEntries.fold<double>(0, (sum, e) => sum + e.durationHours);
     final signatureImage =
@@ -192,19 +192,16 @@ class PdfExportService {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.Text(
-              'Werkstatt-Wochenbericht',
+              'Werkstattstunden',
               style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
             ),
-            pw.Text(
-              '$monthLabel (KW $kw: $rangeLabel)',
-              style: const pw.TextStyle(fontSize: 14),
-            ),
+            pw.Text(monthLabel, style: const pw.TextStyle(fontSize: 14)),
             pw.SizedBox(height: 12),
           ],
         ),
         build: (context) => [
           if (werkstattEntries.isEmpty)
-            pw.Text('Keine Werkstatt-Einträge in dieser Woche.')
+            pw.Text('Keine Werkstatt-Einträge in diesem Monat.')
           else
             pw.Table(
               border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey600),
@@ -297,16 +294,6 @@ class PdfExportService {
     );
 
     return doc.save();
-  }
-
-  /// ISO-8601-Kalenderwoche (Montag-Sonntag, KW 1 enthält den ersten
-  /// Donnerstag des Jahres). Öffentlich, damit auch die Wochen-Navigation
-  /// in [EntriesListScreen] dieselbe Berechnung für die Anzeige nutzen kann.
-  static int isoWeekNumber(DateTime date) {
-    final d = DateTime.utc(date.year, date.month, date.day);
-    final thursday = d.add(Duration(days: 4 - d.weekday));
-    final firstDayOfYear = DateTime.utc(thursday.year, 1, 1);
-    return ((thursday.difference(firstDayOfYear).inDays) / 7).floor() + 1;
   }
 
   static int _byDateAndStart(TimeEntry a, TimeEntry b) {

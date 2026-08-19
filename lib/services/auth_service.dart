@@ -4,11 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Verwaltet den Login-Status für die Web/PWA-Variante.
-///
-/// Nur relevant, wenn die App im Browser läuft und gegen den Backend-Server
-/// spricht (siehe `database_helper_web.dart`) - auf iOS/Windows gibt es kein
-/// Login, dort wird diese Klasse gar nicht erst benutzt.
+/// Verwaltet den Login-Status der PWA gegen den Backend-Server (siehe
+/// `database_helper.dart`).
 ///
 /// Der Token wird nach erfolgreichem Login lokal (SharedPreferences, im
 /// Browser landet das im LocalStorage) gespeichert, damit man nach einem
@@ -34,7 +31,7 @@ class AuthService extends ChangeNotifier {
   int? get userId => _userId;
 
   /// Für authentifizierte REST-Aufrufe: einfach an die vorhandenen Header
-  /// mergen (siehe database_helper_web.dart).
+  /// mergen (siehe database_helper.dart).
   Map<String, String> get authHeaders =>
       _token == null ? {} : {'authorization': 'Bearer $_token'};
 

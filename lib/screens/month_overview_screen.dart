@@ -3,12 +3,12 @@ import 'package:intl/intl.dart';
 
 import '../db/database_helper.dart';
 import '../models/time_entry.dart';
-import '../theme/design_tokens.dart';
 import '../services/pdf_export_service.dart';
+import '../services/profile_service.dart';
+import '../theme/design_tokens.dart';
 import '../widgets/stamp_badge.dart';
 import 'customer_month_detail_screen.dart';
 import 'day_detail_screen.dart';
-import 'werkstatt_week_report_screen.dart';
 
 class MonthOverviewScreen extends StatefulWidget {
   const MonthOverviewScreen({super.key});
@@ -23,6 +23,7 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   List<TimeEntry> _entries = [];
   bool _loading = true;
+  bool _exportingWerkstatt = false;
   bool _exportingFull = false;
 
   @override
@@ -74,26 +75,20 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
   Set<int> get _kundeDays =>
       _entries.where((e) => !e.isWerkstatt).map((e) => e.date.day).toSet();
 
-  /// Montag der Woche, in der [day] liegt - gleiche Logik wie in
-  /// database_helper's entriesForWeek()/home_screen's _openWeekList().
-  DateTime _weekStartFor(DateTime day) {
-    final dateOnly = DateTime(day.year, day.month, day.day);
-    return dateOnly.subtract(Duration(days: dateOnly.weekday - 1));
-  }
-
-  /// Öffnet den Werkstatt-Wochenbericht - Ausgangspunkt ist die aktuelle
-  /// Woche, falls gerade der laufende Monat angezeigt wird, sonst die erste
-  /// Woche des angezeigten Monats. Von dort lässt sich mit den Pfeilen im
-  /// Wochenbericht zu jeder anderen Woche navigieren.
-  void _openWeekReport() {
-    final now = DateTime.now();
-    final isCurrentMonth = _month.year == now.year && _month.month == now.month;
-    final weekStart = _weekStartFor(isCurrentMonth ? now : DateTime(_month.year, _month.month, 1));
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => WerkstattWeekReportScreen(initialWeekStart: weekStart),
-      ),
-    );
+  Future<void> _exportWerkstattPdf() async {
+    setState(() => _exportingWerkstatt = true);
+    try {
+      final profile = await ProfileService.instance.loadProfile();
+      await PdfExportService.exportAndShareWerkstattMonth(
+        year: _month.year,
+        month: _month.month,
+        entries: _entries,
+        authorName: profile.displayName,
+        signatureBytes: profile.signature,
+      );
+    } finally {
+      if (mounted) setState(() => _exportingWerkstatt = false);
+    }
   }
 
   Future<void> _exportFullPdf() async {
@@ -135,6 +130,7 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
   Widget build(BuildContext context) {
     final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(_month);
     final customerTotals = _customerTotals;
+    final hasWerkstattEntries = _entries.any((e) => e.isWerkstatt);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Monatsübersicht')),
@@ -178,14 +174,23 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
                   icon: Icons.build_rounded,
                   color: AppColors.amber,
                   title: 'Werkstatt (gesamt)',
-                  subtitle: 'Export im Werkstatt-Wochenbericht',
+                  subtitle: 'Wird im PDF-Export ausgegeben',
                   hours: _werkstattTotal,
                 ),
                 const SizedBox(height: 12),
                 FilledButton.icon(
-                  onPressed: _openWeekReport,
-                  icon: const Icon(Icons.picture_as_pdf),
-                  label: const Text('Werkstatt-Wochenbericht öffnen'),
+                  onPressed:
+                      (!hasWerkstattEntries || _exportingWerkstatt) ? null : _exportWerkstattPdf,
+                  icon: _exportingWerkstatt
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.picture_as_pdf),
+                  label: Text(
+                    _exportingWerkstatt ? 'Erstelle PDF …' : 'PDF Export Werkstattstunden',
+                  ),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(

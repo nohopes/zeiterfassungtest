@@ -3,9 +3,16 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../models/profile_data.dart';
+import '../screens/signature_capture_screen.dart';
 import '../services/profile_service.dart';
 import '../theme/design_tokens.dart';
 import 'signature_pad.dart';
+
+/// Ab dieser Bildschirm-Breite (kürzere Seite) gilt ein Gerät als
+/// "groß genug" (z. B. iPad), um direkt inline im normalen Hochformat zu
+/// unterschreiben. Darunter (Handy) öffnet sich stattdessen ein gedrehtes
+/// Vollbild-Unterschriftenfeld (siehe SignatureCaptureScreen).
+const double _tabletShortestSideBreakpoint = 600;
 
 /// Name + Unterschrift für den Werkstatt-Wochenbericht - auf jeder
 /// Plattform gleich aufgebaut (siehe profile_service.dart für die
@@ -97,6 +104,29 @@ class _ProfileSectionState extends State<ProfileSection> {
     });
   }
 
+  /// Öffnet das gedrehte Vollbild-Unterschriftenfeld (für Handys) und
+  /// speichert die zurückgegebenen PNG-Bytes genau wie [_saveSignature].
+  Future<void> _openFullscreenSignatureCapture() async {
+    final bytes = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute(
+        builder: (_) => const SignatureCaptureScreen(),
+        fullscreenDialog: true,
+      ),
+    );
+    if (bytes == null) return;
+    setState(() => _savingSignature = true);
+    await ProfileService.instance.saveSignature(bytes);
+    if (!mounted) return;
+    setState(() {
+      _savedSignature = bytes;
+      _editingSignature = false;
+      _savingSignature = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Unterschrift gespeichert.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -169,6 +199,29 @@ class _ProfileSectionState extends State<ProfileSection> {
               ),
             ],
           ),
+        ] else if (MediaQuery.of(context).size.shortestSide <
+            _tabletShortestSideBreakpoint) ...[
+          // Handy (kleiner als ein iPad): eigenes, quer gedrehtes
+          // Vollbild-Feld statt der kleinen Inline-Box - lässt sich sonst
+          // kaum bequem mit dem Finger unterschreiben.
+          OutlinedButton.icon(
+            onPressed: _savingSignature ? null : _openFullscreenSignatureCapture,
+            icon: _savingSignature
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.edit_outlined),
+            label: const Text('Unterschrift zeichnen (Querformat)'),
+          ),
+          if (_savedSignature != null) ...[
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => setState(() => _editingSignature = false),
+              child: const Text('Abbrechen'),
+            ),
+          ],
         ] else ...[
           Container(
             height: 140,

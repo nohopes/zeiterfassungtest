@@ -7,15 +7,8 @@ build/
 *.iml
 *.log
 
-# iOS/Xcode (werden lokal per `flutter create .` neu erzeugt/verwaltet)
-ios/Pods/
-ios/.symlinks/
-ios/Flutter/Flutter.framework
-ios/Flutter/Flutter.podspec
-**/*.xcuserstate
-
-# Android
-android/.gradle/
-android/local.properties
+# web/ wird per `flutter create --platforms=web .` erzeugt/verwaltet
+# (siehe Dockerfile) - bewusst NICHT ignoriert, da die von uns angepassten
+# Dateien (index.html, manifest.json, push/) versioniert werden müssen.
 
 .DS_Store

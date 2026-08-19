@@ -8,8 +8,8 @@ FROM ghcr.io/cirruslabs/flutter:stable AS flutter-build
 WORKDIR /app
 COPY . .
 
-# Falls der web/-Ordner (noch) nicht existiert, wird er hier ergänzt -
-# analog zum ios/- bzw. windows/-Ordner, ohne lib/ anzufassen.
+# Falls der web/-Ordner (noch) nicht existiert, wird er hier ergänzt, ohne
+# lib/ anzufassen.
 RUN flutter create --platforms=web --org de.dennis . \
   && flutter pub get \
   && flutter build web --release

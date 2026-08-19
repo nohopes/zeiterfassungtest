@@ -1,175 +1,98 @@
 # Zeiterfassung (Handwerk)
 
-Lokale Zeiterfassungs-App für iOs (Flutter). Zwei Arten von Einträgen:
+Stunden- und Zeiterfassung fürs Handwerk als reine Web/PWA-App ("Stunden
+Logbuch"), inkl. eigenem Backend-Server. Läuft komplett bei dir selbst per
+Docker (z. B. auf einem unRAID-Server) - kein Cloud-Dienst, keine
+Drittanbieter-Abhängigkeit für die eigentlichen Daten.
 
-- **Kunde** (z. B. "Gerhard"): Startzeit, Endzeit, Tätigkeit. Dient nur der
-  eigenen Kontrolle, taucht **nicht** im PDF-Export auf. Die Uhrzeit wird
-  nur zur Berechnung der Dauer genutzt.
-- **Werkstatt**: gleiche Eingabe, aber Name ist immer "Werkstatt". Diese
-  Einträge sind die offizielle Grundlage und werden monatlich als PDF
-  exportiert (Datum, Uhrzeit, Dauer, Tätigkeit, Monatssumme).
+Zwei Arten von Einträgen:
 
-Die Dauer wird aus Start-/Endzeit automatisch berechnet und kaufmännisch auf
-0,25-Stunden-Schritte gerundet (0,25 / 0,5 / 0,75 / 1,0 …), genau wie in
-deinem Beispiel (7:00–7:30 → 0,5 Std.).
+- **Kunde** (z. B. "Gerhard"): Startzeit, Endzeit, Tätigkeit, optionale
+  Pause (Frühstückspause 15 min / Mittagspause 30 min, wird von der Dauer
+  abgezogen). Dient nur der eigenen Kontrolle, taucht **nicht** im
+  Werkstatt-PDF-Export auf.
+- **Werkstatt**: gleiche Eingabe, Name ist immer "Werkstatt". Diese
+  Einträge sind die offizielle Grundlage und werden als PDF exportiert
+  (Datum, Uhrzeit, Dauer, Tätigkeit, Kontrollspalte, Unterschrift).
 
-Alle Daten werden **lokal** auf dem Gerät in einer SQLite-Datenbank
-gespeichert (kein Server, keine Internetverbindung nötig). iCloud-Sync ist
-als nächster Ausbauschritt vorgesehen (siehe unten).
+Die Dauer wird aus Start-/Endzeit automatisch berechnet und auf
+15-Minuten-Schritte gerundet.
 
-## Wichtiger Hinweis zu diesem Projektstand
+## Funktionen
 
-Ich konnte den Code in meiner Cloud-Umgebung **nicht selbst kompilieren**,
-da dort kein Flutter/Xcode zur Verfügung steht (das Netzwerk dort blockiert
-den Download des Flutter-Engine-Pakets). Der komplette App-Code (`lib/`)
-ist fertig und von mir sorgfältig manuell geprüft, aber der **erste echte
-Kompiliertest** passiert bei dir bzw. automatisch über Codemagic.
+- **Mehrbenutzer-Login**: jeder Kollege hat einen eigenen Account und sieht
+  nur seine eigenen Einträge. Ein Admin-Konto kann weitere Nutzer anlegen/
+  löschen (unter "Konto").
+- **Vorgefertigte Tätigkeiten**: pro Nutzer selbst anlegbare/änderbare/
+  löschbare Vorlagen für Werkstatt-Tätigkeiten, dazu automatisch die 5
+  häufigsten Tätigkeiten als Schnellauswahl.
+- **Profil mit Name & Unterschrift**: unter "Konto" hinterlegt jeder Nutzer
+  einmalig seinen Namen und eine gezeichnete Unterschrift - beides wird
+  automatisch dem Werkstatt-PDF beigefügt. Auf kleinen Bildschirmen (Handy)
+  öffnet sich dafür automatisch ein gedrehtes Vollbild-Zeichenfeld, auf
+  größeren (Tablet) direkt inline.
+- **Startseite**: Tagesansicht mit Vor-/Zurück-Navigation, Wochen-/
+  Monatssumme als Kacheln (antippbar für eine vollständige, chronologisch
+  sortierte Liste aller Einträge des Zeitraums), Name aus dem Profil oben
+  rechts im Header.
+- **Monatsübersicht**: Kalender mit Punkt-Markierung pro Tag (Amber =
+  Werkstatt, Petrol = Kunde), Kundenliste mit Zwischensummen, PDF-Exporte.
+- **Werkstatt-PDF-Export**: ein Knopf "PDF Export Werkstattstunden" pro
+  Monat - Datum, Uhrzeit, Dauer, Tätigkeit, eine Spalte "Eingetragen Büro"
+  zum manuellen Abhaken durch das Büro, sowie Name/Unterschrift aus dem
+  Profil (sofern hinterlegt, sonst bleibt die Zeile leer).
+- **Gesamtbericht-Export**: separater, monatlicher PDF-Export mit ALLEN
+  Einträgen (Kunde + Werkstatt), zur eigenen Sicherung - kein offizielles
+  Werkstatt-Dokument.
+- **Push-Erinnerungen**: optionale Browser-Benachrichtigung werktags um
+  16:30 Uhr, falls für den Tag noch kein Eintrag existiert.
+- **PWA**: auf dem Handy/Tablet zum Homescreen hinzufügbar, läuft dann wie
+  eine native App (eigenes Icon, ohne Browser-Adressleiste).
 
-Außerdem fehlen bewusst die nativen `ios/`- und `android/`-Ordner
-(Xcode-Projektdateien) – die lassen sich nicht von Hand zuverlässig
-schreiben, sondern werden von Flutter selbst generiert. Das ist der
-**erste Schritt**, den du (oder Codemagic automatisch) einmalig ausführen
-musst:
-
-```bash
-cd zeiterfassung
-flutter create --platforms=ios --org de.dennis .
-flutter pub get
-```
-
-Das ergänzt nur die fehlenden Plattform-Ordner, ohne deinen `lib/`-Code
-anzufassen. Die Codemagic-Konfiguration (`codemagic.yaml`) macht das
-automatisch bei jedem Cloud-Build – dort musst du gar nichts tun.
-
-## Schnell-Vorschau auf deinem Windows-PC (ganz ohne Mac/VM)
-
-Flutter kann die App auch direkt als Windows-Programm bauen. Da Flutter die
-komplette Oberfläche selbst zeichnet (nicht auf native Windows-Steuerelemente
-zurückgreift), sieht sie dabei optisch praktisch genauso aus wie später auf
-dem iPhone. Perfekt, um sich die App schon mal anzusehen, während die VM
-noch beschäftigt ist.
-
-1. Flutter für Windows installieren: https://docs.flutter.dev/get-started/install/windows
-   (offizieller Installer, danach `flutter doctor` ausführen, um zu prüfen
-   ob alles passt)
-2. Dieses Zip entpacken, dann im Terminal/PowerShell in den `zeiterfassung`-
-   Ordner wechseln
-3. Windows-Unterstützung + Abhängigkeiten einrichten:
-   ```powershell
-   flutter create --platforms=windows .
-   flutter pub get
-   ```
-4. App starten:
-   ```powershell
-   flutter run -d windows
-   ```
-
-Das öffnet ein echtes Windows-Fenster mit der App. Die Datenbank läuft dabei
-über eine Windows-kompatible SQLite-Anbindung (`sqflite_common_ffi`), die
-ich dafür bereits eingebaut habe – Speichern/Laden von Einträgen funktioniert
-also genauso wie später auf dem iPhone.
-
-**Eine Einschränkung:** Der PDF-Export-Button nutzt zum Teilen des PDFs eine
-Funktion, die auf dem iPhone (Teilen-Menü) optimiert ist. Unter Windows
-öffnet sich stattdessen wahrscheinlich ein Speichern- oder Druckdialog statt
-eines "Teilen"-Fensters – das ist normal und kein Fehler, richtig getestet
-wird dieser Teil dann final auf dem iPhone.
-
-## Nächste Schritte (wie in unserem Gespräch besprochen)
-
-1. **Projekt zu GitHub hochladen** (privates Repo reicht):
-   ```bash
-   cd zeiterfassung
-   git init
-   git add .
-   git commit -m "Erste Version Zeiterfassung"
-   # dann bei GitHub ein neues Repo anlegen und pushen
-   ```
-
-2. **Kostenloser erster Test auf deinem iPhone** (ohne Abo, mit dem Mac
-   deines Bekannten):
-   - `flutter create --platforms=ios --org de.dennis .` und `flutter pub get`
-     ausführen
-   - Projekt in Xcode öffnen (`open ios/Runner.xcworkspace`)
-   - Dein Apple-ID unter Xcode → Settings → Accounts hinzufügen
-   - iPhone per Kabel anschließen, als "Personal Team" signieren, "Run"
-     drücken. Läuft 7 Tage, danach ggf. erneut signieren.
-
-3. **Sobald du das Apple Developer Program hast (99 $/Jahr) und die App
-   auch an Kollegen verteilen willst**: Codemagic-Konto anlegen, Repo
-   verbinden, App-Store-Connect-API-Key hinterlegen (siehe Kommentare in
-   `codemagic.yaml`). Danach baut Codemagic die App bei jedem Push
-   automatisch und lädt sie zu TestFlight hoch – ganz ohne dass du selbst
-   Xcode bedienen musst.
-
-## Neue Funktionen (aktuelle Version)
-
-- **Profil-Name im Header**: Rechts oben neben "Stunden Logbuch" steht der
-  im Profil hinterlegte Name (siehe "Profil mit Name & Unterschrift"
-  unten) - bewusst NICHT der Login-Benutzername. Solange noch kein
-  Profilname eingetragen wurde, wird in der Web/PWA-Variante ersatzweise
-  der Login-Benutzername angezeigt.
-- **Komplette Liste für Woche/Monat**: Tippen auf die Kachel "Diese Woche"
-  bzw. "Dieser Monat" auf der Startseite öffnet eine vollständige,
-  chronologisch sortierte Liste aller Einträge des Zeitraums (Kunde UND
-  Werkstatt gemischt, neuste oben, älteste unten) inkl. Gesamtsumme - reine
-  Übersicht, kein PDF-Export (dafür siehe Werkstatt-Wochenbericht unten).
-- **Kalender mit zwei Punkten**: In der Monatsübersicht zeigt jeder Tag mit
-  Einträgen bis zu zwei kleine Punkte - Amber für Werkstatt, Petrol für
-  Kunde - damit auf einen Blick erkennbar ist, welche Art von Eintrag an
-  diesem Tag existiert.
-- **Profil mit Name & Unterschrift**: Unter "Konto" kann jeder Nutzer (auf
-  allen Plattformen) seinen Namen hinterlegen sowie einmalig eine
-  Unterschrift zeichnen (z. B. mit dem Finger/Stift auf einem iPad). Beides
-  wird auf dem Werkstatt-Wochenbericht automatisch mit ausgegeben, sofern
-  hinterlegt - ansonsten bleiben Name/Unterschriftszeile einfach leer. Auf
-  iOS/Windows liegen diese Angaben lokal auf dem Gerät, in der Web/PWA-
-  Variante am eingeloggten Nutzerkonto auf dem Server.
-- **Werkstatt-Wochenbericht (einziger Werkstatt-PDF-Export)**: Der frühere
-  monatliche Werkstatt-PDF-Export wurde entfernt - es gibt jetzt bewusst nur
-  noch EIN Werkstatt-PDF-Format, den Wochenbericht. Erreichbar über den
-  Button "Werkstatt-Wochenbericht öffnen" in der Monatsübersicht - ein
-  eigener, schlanker Screen (nur Wochen-Navigation, Stundensumme und
-  Export-Button, bewusst OHNE Einzel-Einträge-Liste). Mit den Pfeilen ist
-  man nicht auf die aktuelle Woche beschränkt, sondern kann auch für
-  vergangene (oder zukünftige) Wochen einen Bericht exportieren. Enthält:
-  - Kalenderwoche (KW) inkl. Datumsbereich neben dem Monat im Titel, z. B.
-    "August 2026 (KW 34: 17.08.–23.08.)"
-  - einer Spalte "Eingetragen Büro" neben der Tätigkeit zum manuellen
-    Abhaken durch das Büro, sobald eine Zeile erfasst wurde
-  - einem Unterschriften-/Namensfeld unten, automatisch befüllt aus dem
-    Profil (siehe oben)
-
-  Der "Gesamtbericht" (alle Einträge inkl. Kunde, zur eigenen Sicherung)
-  bleibt weiterhin als separater, monatlicher Export in der
-  Monatsübersicht bestehen - das ist kein offizielles Werkstatt-Dokument.
-
-## Noch offen / nächste Ausbaustufe
-
-- **iCloud-Backup**: aktuell nur lokale Speicherung. Für echten
-  iCloud-Sync braucht es die "iCloud"-Capability in Xcode (App-ID im
-  Apple Developer Portal, CloudKit-Container) – das richten wir ein,
-  sobald du Zugriff auf einen Mac/Developer-Account hast. Bis dahin ließe
-  sich als Zwischenlösung ein manueller "Exportieren/Sichern"-Button
-  ergänzen (z. B. Datenbank-Datei in die Dateien-App/iCloud Drive
-  kopieren).
-- **Bearbeiten mehrerer Tage rückwirkend**: aktuell über die
-  Tages-Navigation (Pfeile) möglich, kein Kalender-Picker – kann bei
-  Bedarf ergänzt werden.
-
-## Projektstruktur
+## Aufbau
 
 ```
 zeiterfassung/
-  lib/
-    models/time_entry.dart        # Datenmodell + Umrechnung Map<->Objekt
-    utils/time_rounding.dart      # Dauer-Berechnung & 0,25h-Rundung
-    db/database_helper.dart       # lokale SQLite-Datenbank
-    services/pdf_export_service.dart  # Werkstatt-PDF-Export
-    screens/home_screen.dart      # Tagesansicht
-    screens/add_entry_screen.dart # Eintrag anlegen/bearbeiten
-    screens/month_overview_screen.dart # Monatsübersicht + PDF-Export
-    main.dart
-  pubspec.yaml
-  codemagic.yaml                  # Cloud-Build-Konfiguration
+  lib/                     # Flutter-Web-App
+    models/                # Datenmodelle
+    services/               # REST-Zugriff, Auth, PDF-Export, Push
+    screens/                # Bildschirme
+    widgets/                # wiederverwendbare UI-Bausteine
+    theme/                  # Design-Tokens ("Werkstattbuch"-Optik)
+  web/                      # PWA-Manifest, index.html, Service-Worker
+  server/                   # Dart-Backend (REST-API + sembast-Datenbank)
+  Dockerfile                # Multi-Stage-Build: Flutter-Web + Dart-Server
+  docker-compose.yml        # Beispiel-Konfiguration für den eigenen Server
+  .github/workflows/        # baut & pusht das Docker-Image nach GitHub
+                             # Container Registry (ghcr.io) bei jedem Push
 ```
+
+## Betrieb per Docker
+
+1. `docker-compose.yml` anpassen: `ADMIN_USERNAME`/`ADMIN_PASSWORD` setzen
+   (nur beim allerersten Start wirksam, legt das erste Admin-Konto an),
+   optional `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` für
+   Push-Erinnerungen (ohne diese drei bleibt Push einfach deaktiviert).
+2. `docker compose up -d --build` (oder das fertige Image von
+   `ghcr.io/<dein-repo>:latest` verwenden, das GitHub Actions bei jedem
+   Push automatisch baut).
+3. Die App ist danach unter `http://<server>:8080` erreichbar. Mit dem
+   Admin-Konto einloggen, weitere Kollegen unter "Konto" anlegen.
+
+## Daten & Backup
+
+Alle Daten - Zeiteinträge, Nutzerkonten/Logins (als bcrypt-Hash, nie im
+Klartext), Vorlagen, Profil-Namen und -Unterschriften, Push-Abos - liegen
+in **einer einzigen Datei**: `zeiterfassung.db` im gemounteten Datenordner
+(Standard: `./data/zeiterfassung.db`, bzw. wo auch immer das Volume in
+`docker-compose.yml` hinzeigt). Ein regelmäßiges (z. B. tägliches)
+inkrementelles Backup genau dieser einen Datei sichert die komplette App
+inklusive aller Unterschriften.
+
+## Entwicklung
+
+Änderungen an `lib/` werden bei jedem `docker compose up --build`
+automatisch neu für's Web kompiliert (`flutter build web --release` im
+Dockerfile). Für schnellere Iteration lokal auch direkt mit
+`flutter run -d chrome` möglich (Backend-Server dafür separat mit
+`dart run server/bin/server.dart` starten).

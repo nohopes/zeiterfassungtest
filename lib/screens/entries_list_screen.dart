@@ -9,8 +9,9 @@ import '../widgets/stamp_badge.dart';
 /// Vollständige, chronologisch sortierte Auflistung aller Einträge in einem
 /// Zeitraum (Woche oder Monat) - neuste zuerst, alle Arten gemischt (Kunde
 /// UND Werkstatt). Wird von den "Diese Woche"/"Dieser Monat"-Kacheln auf
-/// der Startseite geöffnet - reine Übersicht, kein PDF-Export (dafür siehe
-/// [WerkstattWeekReportScreen]).
+/// der Startseite geöffnet - reine Übersicht, kein PDF-Export (den PDF-
+/// Export der Werkstatt-Stunden gibt es als eigenen Knopf in der
+/// Monatsübersicht).
 class EntriesListScreen extends StatefulWidget {
   final String title;
   final DateTime startInclusive;

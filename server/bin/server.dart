@@ -23,9 +23,9 @@ import 'package:zeiterfassung_server/web_push.dart' as web_push;
 /// braucht jede Anfrage (außer Login) einen gültigen Bearer-Token im
 /// Authorization-Header.
 ///
-/// Die Datenlogik (Filter/Sortierung) ist bewusst identisch zur lokalen
-/// iOS/Windows-Implementierung (`lib/db/database_helper_io.dart`) gehalten,
-/// nur zusätzlich immer auf die eingeloggte userId gefiltert.
+/// Die Datenlogik (Filter/Sortierung) ist bewusst identisch zu der im
+/// Client (`lib/db/database_helper.dart`) gehalten, nur zusätzlich immer
+/// auf die eingeloggte userId gefiltert.
 final _store = intMapStoreFactory.store('time_entries');
 final _usersStore = intMapStoreFactory.store('users');
 final _sessionsStore = stringMapStoreFactory.store('sessions');

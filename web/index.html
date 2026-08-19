@@ -20,11 +20,19 @@
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="Stunden- und Zeiterfassung fürs Handwerk mit monatlichem Werkstatt-PDF-Export.">
   <meta name="theme-color" content="#15130E">
+  <!--
+    viewport-fit=cover: lässt die Web-App auch unter der Notch/dem
+    Status-Balken zeichnen (statt dass Safari/Chrome dort einen eigenen,
+    nicht themebaren weißen Streifen lässt). Zusammen mit dem CSS unten
+    (dunkler Hintergrund auf html/body) verschwindet der weiße Balken oben
+    auf dem Handy, den es vorher gab.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Stunden Logbuch">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
@@ -33,6 +41,17 @@
 
   <title>Stunden Logbuch</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* Dunkler Hintergrund für html/body, bevor Flutter überhaupt zeichnet -
+       verhindert einen weißen Blitz/Streifen (u. a. im Notch-/Status-
+       Balken-Bereich) beim Start bzw. während des Ladens. */
+    html, body {
+      background-color: #15130E;
+      margin: 0;
+      padding: 0;
+    }
+  </style>
 </head>
 <body>
   <!--
