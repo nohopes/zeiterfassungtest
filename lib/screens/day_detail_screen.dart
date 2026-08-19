@@ -6,6 +6,7 @@ import '../models/time_entry.dart';
 import '../theme/design_tokens.dart';
 import '../widgets/ledger_row.dart';
 import '../widgets/stamp_badge.dart';
+import '../widgets/swipe_action_row.dart';
 import 'add_entry_screen.dart';
 
 /// Detailansicht eines einzelnen (auch vergangenen) Tages - erreichbar z. B.
@@ -79,38 +80,42 @@ class _DayDetailScreenState extends State<DayDetailScreen> {
       appBar: AppBar(title: Text(dateLabel)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _entries.isEmpty
-              ? Center(
-                  child: Text(
-                    'Noch keine Einträge für diesen Tag',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: AppColors.inkMuted),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.only(top: 8, bottom: 12),
-                  itemCount: _entries.length,
-                  itemBuilder: (context, index) {
-                    final e = _entries[index];
-                    return Dismissible(
-                      key: ValueKey(e.id),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        color: AppColors.rust,
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: const Icon(Icons.delete, color: Colors.white),
-                      ),
-                      onDismissed: (_) => _deleteEntry(e),
-                      child: LedgerRow(
-                        entry: e,
-                        onTap: () => _openAddEntry(existing: e),
-                      ),
-                    );
-                  },
-                ),
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: _entries.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.6,
+                          child: Center(
+                            child: Text(
+                              'Noch keine Einträge für diesen Tag',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(color: AppColors.inkMuted),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.only(top: 8, bottom: 12),
+                      itemCount: _entries.length,
+                      itemBuilder: (context, index) {
+                        final e = _entries[index];
+                        return SwipeActionRow(
+                          key: ValueKey(e.id),
+                          onTap: () => _openAddEntry(existing: e),
+                          onEdit: () => _openAddEntry(existing: e),
+                          onDelete: () => _deleteEntry(e),
+                          child: LedgerRow(entry: e),
+                        );
+                      },
+                    ),
+            ),
       bottomNavigationBar: _entries.isEmpty
           ? null
           : Container(

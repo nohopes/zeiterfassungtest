@@ -7,10 +7,11 @@ import '../utils/time_rounding.dart';
 import 'stamp_badge.dart';
 
 /// Eine Zeile im Werkstattbuch: farbiger Rand links (Amber = Werkstatt,
-/// Petrol = Kunde), Uhrzeit in Monospace, Name/Tätigkeit, gestempelte
-/// Stundenzahl rechts, dünne Linie unten. Ersetzt Card+ListTile durch
-/// linierte Buchzeilen statt schwebender Karten - passend zu einem
-/// "Logbuch"-Layout.
+/// Petrol = Kunde, Blaugrau = Urlaub, Terrakotta = Krankheit), Uhrzeit in
+/// Monospace, Name/Tätigkeit, gestempelte Stundenzahl rechts (bei
+/// Urlaub/Krankheit stattdessen ein Icon statt Stunden), dünne Linie unten.
+/// Ersetzt Card+ListTile durch linierte Buchzeilen statt schwebender
+/// Karten - passend zu einem "Logbuch"-Layout.
 class LedgerRow extends StatelessWidget {
   final TimeEntry entry;
   final VoidCallback? onTap;
@@ -33,9 +34,14 @@ class LedgerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = entry.isWerkstatt ? AppColors.amber : AppColors.teal;
-    final timeLabel =
-        '${formatTimeOfDay(entry.startTime)}–${formatTimeOfDay(entry.endTime)}';
+    final accent = switch (entry.absenceType) {
+      AbsenceType.urlaub => AppColors.slate,
+      AbsenceType.krankheit => AppColors.clay,
+      null => entry.isWerkstatt ? AppColors.amber : AppColors.teal,
+    };
+    final timeLabel = entry.isAbsence
+        ? 'GANZTAGS'
+        : '${formatTimeOfDay(entry.startTime)}–${formatTimeOfDay(entry.endTime)}';
     final datePrefix =
         showDate ? '${DateFormat('EEE, dd.MM.', 'de_DE').format(entry.date)} · ' : '';
 
@@ -82,20 +88,29 @@ class LedgerRow extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              entry.activity,
-                              style: const TextStyle(
-                                color: AppColors.inkMuted,
-                                fontSize: 13,
+                            if (entry.activity.isNotEmpty) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                entry.activity,
+                                style: const TextStyle(
+                                  color: AppColors.inkMuted,
+                                  fontSize: 13,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                            ],
                           ],
                         ),
                       ),
                       const SizedBox(width: 10),
-                      StampBadge(hours: entry.durationHours, color: accent),
+                      entry.isAbsence
+                          ? Icon(
+                              entry.absenceType == AbsenceType.urlaub
+                                  ? Icons.beach_access
+                                  : Icons.local_hospital,
+                              color: accent,
+                            )
+                          : StampBadge(hours: entry.durationHours, color: accent),
                       if (trailingAction != null) ...[
                         const SizedBox(width: 4),
                         trailingAction!,

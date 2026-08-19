@@ -11,11 +11,17 @@ class StampBadge extends StatelessWidget {
   final Color color;
   final double fontSize;
 
+  /// Überschreibt die Standardanzeige "X Std." mit einem eigenen Text -
+  /// z. B. "URLAUB"/"KRANKHEIT" bei Abwesenheits-Einträgen, die keine
+  /// Stundenzahl haben.
+  final String? label;
+
   const StampBadge({
     super.key,
     required this.hours,
     this.color = AppColors.amber,
     this.fontSize = 14,
+    this.label,
   });
 
   @override
@@ -29,7 +35,7 @@ class StampBadge extends StatelessWidget {
           borderRadius: BorderRadius.circular(3),
         ),
         child: Text(
-          '${formatHours(hours)} Std.',
+          label ?? '${formatHours(hours)} Std.',
           style: AppTextStyles.monoStrong.copyWith(
             color: color,
             fontSize: fontSize,

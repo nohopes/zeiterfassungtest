@@ -35,6 +35,59 @@ final _pushSubscriptionsStore = intMapStoreFactory.store('push_subscriptions');
 late Database _db;
 late String _webDir;
 
+// --- Brute-Force-Schutz für den Login ------------------------------------
+//
+// Rein im Arbeitsspeicher (kein Problem, ein Server-Neustart löscht die
+// Sperren einfach wieder - für eine kleine, selbstgehostete Handwerker-App
+// reicht das völlig, ohne Komplexität einer externen Rate-Limit-Lösung).
+// Nach [_maxLoginFailures] Fehlversuchen innerhalb von [_loginFailureWindow]
+// wird der jeweilige Benutzername für [_loginLockoutDuration] gesperrt.
+class _LoginAttempts {
+  int failures = 0;
+  DateTime firstFailureAt = DateTime.now();
+  DateTime? lockedUntil;
+}
+
+final _loginAttempts = <String, _LoginAttempts>{};
+const _maxLoginFailures = 5;
+const _loginFailureWindow = Duration(minutes: 15);
+const _loginLockoutDuration = Duration(minutes: 15);
+
+bool _isLoginLocked(String username) {
+  final state = _loginAttempts[username.toLowerCase()];
+  final lockedUntil = state?.lockedUntil;
+  if (lockedUntil == null) return false;
+  if (DateTime.now().isAfter(lockedUntil)) {
+    _loginAttempts.remove(username.toLowerCase());
+    return false;
+  }
+  return true;
+}
+
+void _recordLoginFailure(String username) {
+  final key = username.toLowerCase();
+  final now = DateTime.now();
+  final state = _loginAttempts.putIfAbsent(key, () => _LoginAttempts());
+  if (now.difference(state.firstFailureAt) > _loginFailureWindow) {
+    state.failures = 0;
+    state.firstFailureAt = now;
+  }
+  state.failures++;
+  if (state.failures >= _maxLoginFailures) {
+    state.lockedUntil = now.add(_loginLockoutDuration);
+  }
+}
+
+void _recordLoginSuccess(String username) => _loginAttempts.remove(username.toLowerCase());
+
+// --- Session-Ablauf --------------------------------------------------------
+//
+// Ein Bearer-Token ist ab Ausstellung [_sessionMaxAge] lang gültig - danach
+// muss man sich neu einloggen. Verhindert, dass ein einmal ausgestellter
+// Token (z. B. bei einem verlorenen/verkauften Gerät) für immer gültig
+// bleibt, ohne dass man sich bei jedem App-Start neu anmelden müsste.
+const _sessionMaxAge = Duration(days: 180);
+
 // --- Push-Benachrichtigungen (siehe lib/web_push.dart) --------------------
 //
 // Erinnert Mo-Fr um 16:30 (Europe/Berlin) jeden Nutzer ohne heutigen
@@ -93,11 +146,29 @@ Future<void> main() async {
 
   final cascade = Cascade().add(router.call).add(staticHandler).add(_spaFallback);
 
-  final handler = const Pipeline().addMiddleware(logRequests()).addHandler(cascade.handler);
+  final handler = const Pipeline()
+      .addMiddleware(logRequests())
+      .addMiddleware(_securityHeaders())
+      .addHandler(cascade.handler);
 
   final server = await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
   // ignore: avoid_print
   print('Zeiterfassung-Server läuft auf Port ${server.port} (Daten: $dataDir, Web: $_webDir)');
+}
+
+/// Ein paar einfache, risikofreie Sicherheits-Header auf jede Antwort -
+/// Defense-in-Depth, kein Ersatz für die eigentliche Auth-Logik oben.
+Middleware _securityHeaders() {
+  return (Handler innerHandler) {
+    return (Request request) async {
+      final response = await innerHandler(request);
+      return response.change(headers: {
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+      });
+    };
+  };
 }
 
 // --- Login-Bootstrap ---------------------------------------------------
@@ -162,6 +233,14 @@ Future<int?> _authenticate(Request request) async {
   final token = authHeader.substring('Bearer '.length);
   final session = await _sessionsStore.record(token).get(_db);
   if (session == null) return null;
+
+  final createdAtRaw = session['createdAt'] as String?;
+  final createdAt = createdAtRaw != null ? DateTime.tryParse(createdAtRaw) : null;
+  if (createdAt != null && DateTime.now().difference(createdAt) > _sessionMaxAge) {
+    await _sessionsStore.record(token).delete(_db);
+    return null;
+  }
+
   return session['userId'] as int;
 }
 
@@ -205,14 +284,31 @@ Future<Response> _login(Request request) async {
     return _badRequest('Benutzername und Passwort erforderlich');
   }
 
+  if (_isLoginLocked(username)) {
+    return Response(
+      429,
+      body: jsonEncode({
+        'error': 'Zu viele Fehlversuche - bitte in ein paar Minuten erneut versuchen',
+      }),
+      headers: {'content-type': 'application/json'},
+    );
+  }
+
   final records = await _usersStore.find(
     _db,
     finder: Finder(filter: Filter.equals('username', username)),
   );
-  if (records.isEmpty) return _unauthorized();
+  if (records.isEmpty) {
+    _recordLoginFailure(username);
+    return _unauthorized();
+  }
   final userRecord = records.first;
   final passwordHash = userRecord.value['passwordHash'] as String;
-  if (!BCrypt.checkpw(password, passwordHash)) return _unauthorized();
+  if (!BCrypt.checkpw(password, passwordHash)) {
+    _recordLoginFailure(username);
+    return _unauthorized();
+  }
+  _recordLoginSuccess(username);
 
   final token = _generateToken();
   await _sessionsStore.record(token).put(_db, {
@@ -321,8 +417,8 @@ Future<Response> _adminCreateUser(Request request) async {
   final username = (map['username'] as String? ?? '').trim();
   final password = map['password'] as String? ?? '';
   final isAdmin = map['isAdmin'] == true;
-  if (username.isEmpty || password.length < 4) {
-    return _badRequest('Benutzername und ein Passwort (mind. 4 Zeichen) erforderlich');
+  if (username.isEmpty || password.length < 8) {
+    return _badRequest('Benutzername und ein Passwort (mind. 8 Zeichen) erforderlich');
   }
 
   final existing = await _usersStore.find(
@@ -811,6 +907,9 @@ Future<Response> _customers(Request request) async {
     filter: Filter.and([
       Filter.equals('isWerkstatt', 0),
       Filter.equals('userId', userId),
+      // Urlaub/Krankheit sind keine echten Kundennamen - nicht mit
+      // aufführen.
+      Filter.isNull('absenceType'),
     ]),
   );
   final records = await _store.find(_db, finder: finder);

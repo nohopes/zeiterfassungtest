@@ -119,7 +119,7 @@ class _AccountScreenState extends State<AccountScreen> {
               TextField(
                 controller: passwordController,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: 'Passwort (mind. 4 Zeichen)'),
+                decoration: const InputDecoration(labelText: 'Passwort (mind. 8 Zeichen)'),
               ),
               CheckboxListTile(
                 value: isAdmin,

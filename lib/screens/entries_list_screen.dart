@@ -67,34 +67,46 @@ class _EntriesListScreenState extends State<EntriesListScreen> {
       appBar: AppBar(title: Text(widget.title)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _entries.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.event_available_outlined,
-                        size: 40,
-                        color: AppColors.inkMuted,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Keine Einträge in diesem Zeitraum',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodyMedium
-                            ?.copyWith(color: AppColors.inkMuted),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.only(top: 4, bottom: 12),
-                  itemCount: _entries.length,
-                  itemBuilder: (context, index) {
-                    return LedgerRow(entry: _entries[index], showDate: true);
-                  },
-                ),
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: _entries.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.6,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.event_available_outlined,
+                                  size: 40,
+                                  color: AppColors.inkMuted,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Keine Einträge in diesem Zeitraum',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(color: AppColors.inkMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.only(top: 4, bottom: 12),
+                      itemCount: _entries.length,
+                      itemBuilder: (context, index) {
+                        return LedgerRow(entry: _entries[index], showDate: true);
+                      },
+                    ),
+            ),
       bottomNavigationBar: (!_loading && _entries.isNotEmpty)
           ? Container(
               width: double.infinity,

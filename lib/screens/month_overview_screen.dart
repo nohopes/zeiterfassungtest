@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../db/database_helper.dart';
-import '../models/time_entry.dart';
+import '../models/time_entry.dart' show TimeEntry, AbsenceType;
 import '../services/pdf_export_service.dart';
 import '../services/profile_service.dart';
 import '../theme/design_tokens.dart';
@@ -59,7 +59,7 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
 
   Map<String, double> get _customerTotals {
     final map = <String, double>{};
-    for (final e in _entries.where((e) => !e.isWerkstatt)) {
+    for (final e in _entries.where((e) => !e.isWerkstatt && !e.isAbsence)) {
       map[e.name] = (map[e.name] ?? 0) + e.durationHours;
     }
     return map;
@@ -72,8 +72,23 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
   Set<int> get _werkstattDays =>
       _entries.where((e) => e.isWerkstatt).map((e) => e.date.day).toSet();
 
-  Set<int> get _kundeDays =>
-      _entries.where((e) => !e.isWerkstatt).map((e) => e.date.day).toSet();
+  Set<int> get _kundeDays => _entries
+      .where((e) => !e.isWerkstatt && !e.isAbsence)
+      .map((e) => e.date.day)
+      .toSet();
+
+  Set<int> get _urlaubDays => _entries
+      .where((e) => e.absenceType == AbsenceType.urlaub)
+      .map((e) => e.date.day)
+      .toSet();
+
+  Set<int> get _krankheitDays => _entries
+      .where((e) => e.absenceType == AbsenceType.krankheit)
+      .map((e) => e.date.day)
+      .toSet();
+
+  int get _urlaubTage => _urlaubDays.length;
+  int get _krankheitTage => _krankheitDays.length;
 
   Future<void> _exportWerkstattPdf() async {
     setState(() => _exportingWerkstatt = true);
@@ -112,8 +127,9 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
   }
 
   Future<void> _openCustomer(String name) async {
-    final entriesForCustomer =
-        _entries.where((e) => e.name == name && !e.isWerkstatt).toList();
+    final entriesForCustomer = _entries
+        .where((e) => e.name == name && !e.isWerkstatt && !e.isAbsence)
+        .toList();
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CustomerMonthDetailScreen(
@@ -136,7 +152,10 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
       appBar: AppBar(title: const Text('Monatsübersicht')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
               children: [
                 Row(
@@ -167,6 +186,8 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
                   month: _month,
                   werkstattDays: _werkstattDays,
                   kundeDays: _kundeDays,
+                  urlaubDays: _urlaubDays,
+                  krankheitDays: _krankheitDays,
                   onDayTap: _openDay,
                 ),
                 const SizedBox(height: 20),
@@ -177,6 +198,32 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
                   subtitle: 'Wird im PDF-Export ausgegeben',
                   hours: _werkstattTotal,
                 ),
+                if (_urlaubTage > 0 || _krankheitTage > 0) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      if (_urlaubTage > 0)
+                        Expanded(
+                          child: _AbsenceSummaryChip(
+                            icon: Icons.beach_access,
+                            color: AppColors.slate,
+                            label: 'Urlaub',
+                            tage: _urlaubTage,
+                          ),
+                        ),
+                      if (_urlaubTage > 0 && _krankheitTage > 0) const SizedBox(width: 8),
+                      if (_krankheitTage > 0)
+                        Expanded(
+                          child: _AbsenceSummaryChip(
+                            icon: Icons.local_hospital,
+                            color: AppColors.clay,
+                            label: 'Krankheit',
+                            tage: _krankheitTage,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed:
@@ -238,6 +285,7 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
                     ),
                   ),
               ],
+              ),
             ),
     );
   }
@@ -293,6 +341,47 @@ class _SummaryRow extends StatelessWidget {
   }
 }
 
+/// Kompakte Anzeige "X Tage Urlaub/Krankheit" neben der Werkstatt-Zeile -
+/// nur sichtbar, wenn im Monat tatsächlich welche vorkommen.
+class _AbsenceSummaryChip extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  final int tage;
+
+  const _AbsenceSummaryChip({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.tage,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(4),
+        border: Border(left: BorderSide(color: color, width: 4)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$label: $tage Tag${tage == 1 ? '' : 'e'}',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CustomerRow extends StatelessWidget {
   final String name;
   final double hours;
@@ -333,19 +422,24 @@ class _CustomerRow extends StatelessWidget {
 }
 
 /// Kleiner Monatskalender mit Punkt-Markierung an Tagen mit Einträgen -
-/// getrennt nach Werkstatt (Amber) und Kunde (Petrol), damit auf einen
-/// Blick erkennbar ist, welche Art von Eintrag an einem Tag existiert.
-/// Tippen auf einen Tag öffnet die Tagesdetailansicht.
+/// getrennt nach Werkstatt (Amber), Kunde (Petrol), Urlaub (Blaugrau) und
+/// Krankheit (Terrakotta), damit auf einen Blick erkennbar ist, welche Art
+/// von Eintrag an einem Tag existiert. Tippen auf einen Tag öffnet die
+/// Tagesdetailansicht.
 class _MonthCalendar extends StatelessWidget {
   final DateTime month;
   final Set<int> werkstattDays;
   final Set<int> kundeDays;
+  final Set<int> urlaubDays;
+  final Set<int> krankheitDays;
   final ValueChanged<DateTime> onDayTap;
 
   const _MonthCalendar({
     required this.month,
     required this.werkstattDays,
     required this.kundeDays,
+    required this.urlaubDays,
+    required this.krankheitDays,
     required this.onDayTap,
   });
 
@@ -368,6 +462,14 @@ class _MonthCalendar extends StatelessWidget {
           date.year == now.year && date.month == now.month && date.day == now.day;
       final hasWerkstatt = werkstattDays.contains(day);
       final hasKunde = kundeDays.contains(day);
+      final hasUrlaub = urlaubDays.contains(day);
+      final hasKrankheit = krankheitDays.contains(day);
+      final dotColors = [
+        if (hasWerkstatt) AppColors.amber,
+        if (hasKunde) AppColors.teal,
+        if (hasUrlaub) AppColors.slate,
+        if (hasKrankheit) AppColors.clay,
+      ];
 
       cells.add(
         InkWell(
@@ -398,23 +500,14 @@ class _MonthCalendar extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      if (hasWerkstatt)
+                      for (var i = 0; i < dotColors.length; i++)
                         Container(
                           width: 5,
                           height: 5,
-                          margin: EdgeInsets.only(right: hasKunde ? 3 : 0),
-                          decoration: const BoxDecoration(
+                          margin: EdgeInsets.only(right: i == dotColors.length - 1 ? 0 : 3),
+                          decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: AppColors.amber,
-                          ),
-                        ),
-                      if (hasKunde)
-                        Container(
-                          width: 5,
-                          height: 5,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.teal,
+                            color: dotColors[i],
                           ),
                         ),
                     ],

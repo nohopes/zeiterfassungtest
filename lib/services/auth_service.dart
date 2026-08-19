@@ -65,6 +65,9 @@ class AuthService extends ChangeNotifier {
       if (response.statusCode == 401) {
         return 'Benutzername oder Passwort falsch';
       }
+      if (response.statusCode == 429) {
+        return 'Zu viele Fehlversuche - bitte in ein paar Minuten erneut versuchen';
+      }
       if (response.statusCode != 200) {
         return 'Serverfehler (${response.statusCode})';
       }

@@ -67,9 +67,11 @@ class PdfExportService {
     final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(DateTime(year, month));
     final totalHours = sorted.fold<double>(0, (sum, e) => sum + e.durationHours);
 
-    // Gruppierung für die Zusammenfassung oben (pro Kunde/Werkstatt).
+    // Gruppierung für die Zusammenfassung oben (pro Kunde/Werkstatt) - Urlaub/
+    // Krankheit haben keine Stunden und tauchen daher separat unten in der
+    // Tabelle auf, aber nicht in dieser Std.-Zusammenfassung.
     final totalsByName = <String, double>{};
-    for (final e in sorted) {
+    for (final e in sorted.where((e) => !e.isAbsence)) {
       totalsByName[e.name] = (totalsByName[e.name] ?? 0) + e.durationHours;
     }
 
@@ -144,8 +146,12 @@ class PdfExportService {
                     children: [
                       _cell(DateFormat('EEE, dd.MM.yyyy', 'de_DE').format(e.date)),
                       _cell(e.name),
-                      _cell('${_fmtTime(e.startTime)} - ${_fmtTime(e.endTime)}'),
-                      _cell('${formatHours(e.durationHours)} Std.'),
+                      _cell(
+                        e.isAbsence
+                            ? 'Ganztags'
+                            : '${_fmtTime(e.startTime)} - ${_fmtTime(e.endTime)}',
+                      ),
+                      _cell(e.isAbsence ? '-' : '${formatHours(e.durationHours)} Std.'),
                       _cell(e.activity),
                     ],
                   ),
@@ -177,7 +183,7 @@ class PdfExportService {
       ..sort(_byDateAndStart);
 
     final doc = pw.Document();
-    final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(DateTime(year, month));
+    final monthLabel = _monthLabelWithWeeks(year, month);
     final totalHours =
         werkstattEntries.fold<double>(0, (sum, e) => sum + e.durationHours);
     final signatureImage =
@@ -294,6 +300,28 @@ class PdfExportService {
     );
 
     return doc.save();
+  }
+
+  /// Monatsname + Jahr, dahinter in Klammern die ISO-Kalenderwoche(n), die
+  /// der Monat abdeckt - z. B. "August 2026 (KW32-35)". Nur für den
+  /// Werkstatt-Export, da das Büro damit die Wochen schneller zuordnen kann.
+  static String _monthLabelWithWeeks(int year, int month) {
+    final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(DateTime(year, month));
+    final firstOfMonth = DateTime(year, month, 1);
+    final lastOfMonth = DateTime(year, month + 1, 0);
+    final startWeek = _isoWeekNumber(firstOfMonth);
+    final endWeek = _isoWeekNumber(lastOfMonth);
+    final weekLabel = startWeek == endWeek ? 'KW$startWeek' : 'KW$startWeek-$endWeek';
+    return '$monthLabel ($weekLabel)';
+  }
+
+  /// ISO-8601-Kalenderwoche (Montag als Wochenstart, Woche 1 enthält den
+  /// ersten Donnerstag des Jahres).
+  static int _isoWeekNumber(DateTime date) {
+    final d = DateTime.utc(date.year, date.month, date.day);
+    final thursday = d.add(Duration(days: 4 - d.weekday));
+    final firstDayOfYear = DateTime.utc(thursday.year, 1, 1);
+    return ((thursday.difference(firstDayOfYear).inDays) / 7).floor() + 1;
   }
 
   static int _byDateAndStart(TimeEntry a, TimeEntry b) {

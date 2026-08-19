@@ -70,34 +70,46 @@ class _CustomerMonthDetailScreenState extends State<CustomerMonthDetailScreen> {
             ),
           ),
           Expanded(
-            child: sorted.isEmpty
-                ? Center(
-                    child: Text(
-                      'Keine Einträge in diesem Monat',
-                      style: TextStyle(color: AppColors.inkMuted),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.only(top: 4, bottom: 12),
-                    itemCount: sorted.length,
-                    itemBuilder: (context, index) {
-                      final e = sorted[index];
-                      return LedgerRow(
-                        entry: e,
-                        onTap: () async {
-                          final result = await Navigator.of(context).push<bool>(
-                            MaterialPageRoute(
-                              builder: (_) => AddEntryScreen(
-                                initialDate: e.date,
-                                existing: e,
-                              ),
+            child: RefreshIndicator(
+              onRefresh: _reload,
+              child: sorted.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.5,
+                          child: Center(
+                            child: Text(
+                              'Keine Einträge in diesem Monat',
+                              style: TextStyle(color: AppColors.inkMuted),
                             ),
-                          );
-                          if (result == true) _reload();
-                        },
-                      );
-                    },
-                  ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.only(top: 4, bottom: 12),
+                      itemCount: sorted.length,
+                      itemBuilder: (context, index) {
+                        final e = sorted[index];
+                        return LedgerRow(
+                          entry: e,
+                          onTap: () async {
+                            final result = await Navigator.of(context).push<bool>(
+                              MaterialPageRoute(
+                                builder: (_) => AddEntryScreen(
+                                  initialDate: e.date,
+                                  existing: e,
+                                ),
+                              ),
+                            );
+                            if (result == true) _reload();
+                          },
+                        );
+                      },
+                    ),
+            ),
           ),
         ],
       ),

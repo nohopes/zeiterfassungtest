@@ -28,16 +28,26 @@ class AddEntryScreen extends StatefulWidget {
   State<AddEntryScreen> createState() => _AddEntryScreenState();
 }
 
+/// Die vier wählbaren Eintragsarten oben im Formular. Kunde/Werkstatt sind
+/// normale Zeit-Einträge, Urlaub/Krankheit reine Tages-Markierungen ohne
+/// Uhrzeit (siehe [AbsenceType]).
+enum _EntryKind { kunde, werkstatt, urlaub, krankheit }
+
 class _AddEntryScreenState extends State<AddEntryScreen> {
-  late bool _isWerkstatt;
+  late _EntryKind _entryKind;
   late TextEditingController _nameController;
   late TextEditingController _activityController;
   TimeOfDay _startTime = const TimeOfDay(hour: 7, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 7, minute: 30);
 
-  /// Pause in Minuten (0 = keine, 15 = Frühstück, 30 = Mittag) - nur bei
-  /// Kunden-Einträgen relevant, siehe [TimeEntry.breakMinutes].
-  int _breakMinutes = 0;
+  /// Beide Pausenarten sind unabhängig voneinander wähl- und kombinierbar
+  /// (z. B. wenn man den ganzen Tag bei einem Kunden ist: Frühstück UND
+  /// Mittag). Nur bei Kunden-Einträgen relevant, siehe
+  /// [TimeEntry.breakMinutes].
+  bool _breakfastBreak = false;
+  bool _lunchBreak = false;
+
+  int get _breakMinutes => (_breakfastBreak ? 15 : 0) + (_lunchBreak ? 30 : 0);
 
   List<String> _knownCustomers = [];
   List<String> _topActivities = [];
@@ -46,6 +56,17 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
 
   bool get _isEditing => widget.existing != null;
 
+  bool get _isWerkstatt => _entryKind == _EntryKind.werkstatt;
+
+  bool get _isAbsence =>
+      _entryKind == _EntryKind.urlaub || _entryKind == _EntryKind.krankheit;
+
+  AbsenceType? get _absenceType => switch (_entryKind) {
+        _EntryKind.urlaub => AbsenceType.urlaub,
+        _EntryKind.krankheit => AbsenceType.krankheit,
+        _ => null,
+      };
+
   @override
   void initState() {
     super.initState();
@@ -53,15 +74,25 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
     // Vorlage (Duplizieren), oder es sind die Standardwerte für einen
     // komplett neuen Eintrag.
     final source = widget.existing ?? widget.template;
-    _isWerkstatt = source?.isWerkstatt ?? false;
+    _entryKind = switch (source?.absenceType) {
+      AbsenceType.urlaub => _EntryKind.urlaub,
+      AbsenceType.krankheit => _EntryKind.krankheit,
+      null => (source?.isWerkstatt ?? false) ? _EntryKind.werkstatt : _EntryKind.kunde,
+    };
     _nameController = TextEditingController(
-      text: (source != null && !source.isWerkstatt) ? source.name : '',
+      text: (source != null && !source.isWerkstatt && source.absenceType == null)
+          ? source.name
+          : '',
     );
     _activityController = TextEditingController(text: source?.activity ?? '');
     if (source != null) {
       _startTime = source.startTime;
       _endTime = source.endTime;
-      _breakMinutes = source.breakMinutes;
+      // Vorhandene breakMinutes (0/15/30/45) in die beiden Häkchen zerlegen.
+      var remaining = source.breakMinutes;
+      _lunchBreak = remaining >= 30;
+      if (_lunchBreak) remaining -= 30;
+      _breakfastBreak = remaining >= 15;
     }
     _loadKnownCustomers();
     _loadTopActivities();
@@ -136,19 +167,19 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
   }
 
   Future<void> _save() async {
-    if (!_isWerkstatt && _nameController.text.trim().isEmpty) {
+    if (_entryKind == _EntryKind.kunde && _nameController.text.trim().isEmpty) {
       _showMessage('Bitte einen Kundennamen eingeben');
       return;
     }
-    if (_activityController.text.trim().isEmpty) {
+    if (!_isAbsence && _activityController.text.trim().isEmpty) {
       _showMessage('Bitte eine Tätigkeit eingeben');
       return;
     }
-    if (_rawDuration.inMinutes <= 0) {
+    if (!_isAbsence && _rawDuration.inMinutes <= 0) {
       _showMessage('Endzeit muss nach der Startzeit liegen');
       return;
     }
-    if (!_isWerkstatt && _breakMinutes >= _rawDuration.inMinutes) {
+    if (_entryKind == _EntryKind.kunde && _breakMinutes >= _rawDuration.inMinutes) {
       _showMessage('Die Pause ist länger als die Arbeitszeit');
       return;
     }
@@ -158,12 +189,18 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
     final entry = TimeEntry(
       id: widget.existing?.id,
       date: widget.initialDate,
-      name: _isWerkstatt ? 'Werkstatt' : _nameController.text.trim(),
+      name: switch (_entryKind) {
+        _EntryKind.werkstatt => 'Werkstatt',
+        _EntryKind.urlaub => AbsenceType.urlaub.label,
+        _EntryKind.krankheit => AbsenceType.krankheit.label,
+        _EntryKind.kunde => _nameController.text.trim(),
+      },
       isWerkstatt: _isWerkstatt,
-      startTime: _startTime,
-      endTime: _endTime,
+      startTime: _isAbsence ? const TimeOfDay(hour: 0, minute: 0) : _startTime,
+      endTime: _isAbsence ? const TimeOfDay(hour: 0, minute: 0) : _endTime,
       activity: _activityController.text.trim(),
-      breakMinutes: _isWerkstatt ? 0 : _breakMinutes,
+      breakMinutes: _entryKind == _EntryKind.kunde ? _breakMinutes : 0,
+      absenceType: _absenceType,
     );
 
     if (_isEditing) {
@@ -265,18 +302,38 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('Kunde'), icon: Icon(Icons.person)),
-                ButtonSegment(value: true, label: Text('Werkstatt'), icon: Icon(Icons.build)),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('Kunde'),
+                  avatar: const Icon(Icons.person, size: 18),
+                  selected: _entryKind == _EntryKind.kunde,
+                  onSelected: (_) => setState(() => _entryKind = _EntryKind.kunde),
+                ),
+                ChoiceChip(
+                  label: const Text('Werkstatt'),
+                  avatar: const Icon(Icons.build, size: 18),
+                  selected: _entryKind == _EntryKind.werkstatt,
+                  onSelected: (_) => setState(() => _entryKind = _EntryKind.werkstatt),
+                ),
+                ChoiceChip(
+                  label: const Text('Urlaub'),
+                  avatar: const Icon(Icons.beach_access, size: 18),
+                  selected: _entryKind == _EntryKind.urlaub,
+                  onSelected: (_) => setState(() => _entryKind = _EntryKind.urlaub),
+                ),
+                ChoiceChip(
+                  label: const Text('Krankheit'),
+                  avatar: const Icon(Icons.local_hospital, size: 18),
+                  selected: _entryKind == _EntryKind.krankheit,
+                  onSelected: (_) => setState(() => _entryKind = _EntryKind.krankheit),
+                ),
               ],
-              selected: {_isWerkstatt},
-              onSelectionChanged: (selection) {
-                setState(() => _isWerkstatt = selection.first);
-              },
             ),
             const SizedBox(height: 16),
-            if (!_isWerkstatt) ...[
+            if (_entryKind == _EntryKind.kunde) ...[
               TextField(
                 controller: _nameController,
                 decoration: const InputDecoration(labelText: 'Kunde'),
@@ -303,74 +360,109 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
               ],
               const SizedBox(height: 16),
             ],
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _pickTime(isStart: true),
-                    child: Text('Von: ${formatTimeOfDay(_startTime)}'),
-                  ),
+            if (_isAbsence) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceHigh,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _pickTime(isStart: false),
-                    child: Text('Bis: ${formatTimeOfDay(_endTime)}'),
-                  ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _entryKind == _EntryKind.urlaub
+                          ? Icons.beach_access
+                          : Icons.local_hospital,
+                      color: _entryKind == _EntryKind.urlaub ? AppColors.slate : AppColors.clay,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '${_absenceType!.label} zählt als ganzer Tag, ohne '
+                        'Uhrzeit/Stunden.',
+                        style: TextStyle(color: AppColors.inkMuted, fontSize: 13),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            if (!_isWerkstatt) ...[
-              const SizedBox(height: 12),
-              Text('PAUSE', style: AppTextStyles.eyebrow(AppColors.inkMuted)),
-              const SizedBox(height: 6),
-              SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment(value: 0, label: Text('Keine'), icon: Icon(Icons.block)),
-                  ButtonSegment(
-                    value: 15,
-                    label: Text('Frühstück · 15 Min.'),
-                    icon: Icon(Icons.free_breakfast_outlined),
+              ),
+            ] else ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _pickTime(isStart: true),
+                      child: Text('Von: ${formatTimeOfDay(_startTime)}'),
+                    ),
                   ),
-                  ButtonSegment(
-                    value: 30,
-                    label: Text('Mittag · 30 Min.'),
-                    icon: Icon(Icons.lunch_dining_outlined),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _pickTime(isStart: false),
+                      child: Text('Bis: ${formatTimeOfDay(_endTime)}'),
+                    ),
                   ),
                 ],
-                selected: {_breakMinutes},
-                onSelectionChanged: (s) => setState(() => _breakMinutes = s.first),
               ),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
+              if (_entryKind == _EntryKind.kunde) ...[
+                const SizedBox(height: 12),
+                Text('PAUSE', style: AppTextStyles.eyebrow(AppColors.inkMuted)),
+                const SizedBox(height: 2),
                 Text(
-                  formatHours(_roundedHours),
-                  style: AppTextStyles.monoStrong.copyWith(
-                    fontSize: 16,
-                    color: _isWerkstatt ? AppColors.amber : AppColors.teal,
-                  ),
+                  'Beide Pausen lassen sich kombinieren, z. B. wenn man den '
+                  'ganzen Tag bei einem Kunden ist.',
+                  style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Std. (gerundet auf 0,25-Schritte)',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: AppColors.inkMuted),
-                  ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    FilterChip(
+                      label: const Text('Frühstück · 15 Min.'),
+                      avatar: const Icon(Icons.free_breakfast_outlined, size: 18),
+                      selected: _breakfastBreak,
+                      onSelected: (v) => setState(() => _breakfastBreak = v),
+                    ),
+                    FilterChip(
+                      label: const Text('Mittag · 30 Min.'),
+                      avatar: const Icon(Icons.lunch_dining_outlined, size: 18),
+                      selected: _lunchBreak,
+                      onSelected: (v) => setState(() => _lunchBreak = v),
+                    ),
+                  ],
                 ),
               ],
-            ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Text(
+                    formatHours(_roundedHours),
+                    style: AppTextStyles.monoStrong.copyWith(
+                      fontSize: 16,
+                      color: _isWerkstatt ? AppColors.amber : AppColors.teal,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Std. (gerundet auf 0,25-Schritte)',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(color: AppColors.inkMuted),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
             TextField(
               controller: _activityController,
               maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Tätigkeit',
-                hintText: 'z. B. UP Arbeiten',
+              decoration: InputDecoration(
+                labelText: _isAbsence ? 'Notiz (optional)' : 'Tätigkeit',
+                hintText: _isAbsence ? 'z. B. Zahnarzttermin' : 'z. B. UP Arbeiten',
               ),
               textCapitalization: TextCapitalization.sentences,
               onChanged: (_) => setState(() {}),
@@ -430,7 +522,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                       .toList(),
                 ),
             ],
-            if (quickTopActivities.isNotEmpty) ...[
+            if (!_isAbsence && quickTopActivities.isNotEmpty) ...[
               const SizedBox(height: 14),
               Text('HÄUFIG VERWENDET', style: AppTextStyles.eyebrow(AppColors.inkMuted)),
               const SizedBox(height: 6),

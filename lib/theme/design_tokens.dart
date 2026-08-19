@@ -22,6 +22,8 @@ class AppColors {
   static const teal = Color(0xFF4FA093); // Kunden-Stempel
   static const tealDim = Color(0xFF285850);
   static const rust = Color(0xFFC1553B); // Löschen/Warnung
+  static const slate = Color(0xFF7C93B0); // Urlaub-Stempel
+  static const clay = Color(0xFFB5654A); // Krankheit-Stempel (bewusst anders als "rust"/Fehler)
 }
 
 /// Zentrale Textstile für Zahlen, die "gezählt" werden - bewusst mit der

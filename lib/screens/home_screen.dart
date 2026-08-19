@@ -10,6 +10,7 @@ import '../utils/time_rounding.dart';
 import '../widgets/ledger_row.dart';
 import '../widgets/stamp_badge.dart';
 import '../widgets/stat_tile.dart';
+import '../widgets/swipe_action_row.dart';
 import 'add_entry_screen.dart';
 import 'entries_list_screen.dart';
 
@@ -75,6 +76,12 @@ class HomeScreenState extends State<HomeScreen> {
       _weekTotal = weekEntries.fold(0.0, (sum, e) => sum + e.durationHours);
       _monthTotal = monthEntries.fold(0.0, (sum, e) => sum + e.durationHours);
     });
+  }
+
+  /// Für Pull-to-refresh: Tag-Einträge UND die Wochen-/Monatssumme neu
+  /// laden, damit ein Runterziehen wirklich alles Sichtbare aktualisiert.
+  Future<void> _refresh() async {
+    await Future.wait([_loadEntries(), _loadStats()]);
   }
 
   void _changeDay(int deltaDays) {
@@ -256,49 +263,54 @@ class HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
-                : _entries.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.event_available_outlined,
-                              size: 40,
-                              color: AppColors.inkMuted,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Noch keine Einträge für diesen Tag',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(color: AppColors.inkMuted),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.only(top: 4, bottom: 12),
-                        itemCount: _entries.length,
-                        itemBuilder: (context, index) {
-                          final e = _entries[index];
-                          return Dismissible(
-                            key: ValueKey(e.id),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              color: AppColors.rust,
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.symmetric(horizontal: 20),
-                              child: const Icon(Icons.delete, color: Colors.white),
-                            ),
-                            onDismissed: (_) => _deleteEntry(e),
-                            child: LedgerRow(
-                              entry: e,
-                              onTap: () => _openAddEntry(existing: e),
-                            ),
-                          );
-                        },
-                      ),
+                : RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: _entries.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.only(top: 4, bottom: 12),
+                            children: [
+                              SizedBox(
+                                height: MediaQuery.of(context).size.height * 0.5,
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.event_available_outlined,
+                                        size: 40,
+                                        color: AppColors.inkMuted,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Noch keine Einträge für diesen Tag',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(color: AppColors.inkMuted),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.only(top: 4, bottom: 12),
+                            itemCount: _entries.length,
+                            itemBuilder: (context, index) {
+                              final e = _entries[index];
+                              return SwipeActionRow(
+                                key: ValueKey(e.id),
+                                onTap: () => _openAddEntry(existing: e),
+                                onEdit: () => _openAddEntry(existing: e),
+                                onDelete: () => _deleteEntry(e),
+                                child: LedgerRow(entry: e),
+                              );
+                            },
+                          ),
+                  ),
           ),
         ],
       ),
