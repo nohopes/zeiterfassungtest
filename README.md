@@ -1,4 +1,4 @@
-# Stunden Logbuch (Handwerk)
+# Zeiterfassung (Handwerk)
 
 Lokale Zeiterfassungs-App für iOs (Flutter). Zwei Arten von Einträgen:
 
@@ -11,26 +11,11 @@ Lokale Zeiterfassungs-App für iOs (Flutter). Zwei Arten von Einträgen:
 
 Die Dauer wird aus Start-/Endzeit automatisch berechnet und kaufmännisch auf
 0,25-Stunden-Schritte gerundet (0,25 / 0,5 / 0,75 / 1,0 …), genau wie in
-deinem Beispiel (7:00–7:30 → 0,5 Std.). Beim Setzen der Startzeit springt
-die Zielzeit automatisch auf mindestens Start + 15 Minuten mit, damit nie
-aus Versehen eine ungültige/zu knappe Endzeit stehen bleibt.
+deinem Beispiel (7:00–7:30 → 0,5 Std.).
 
-Bei Kunden-Einträgen lässt sich zusätzlich eine Pause auswählen (keine /
-Frühstück 15 Min. / Mittag 30 Min.), die von der Arbeitszeit abgezogen
-wird. Bei der Tätigkeit gibt es zwei Arten von Vorschlägen: selbst
-angelegte Vorlagen (unter Werkstatt anlegen/bearbeiten/löschen, über
-"Neu" bzw. per langem Tippen auf eine Vorlage) und automatisch ermittelte
-"häufig verwendet"-Vorschläge (die 5 meistgenutzten Tätigkeitstexte).
-
-Auf iPhone/Windows/macOS/Linux werden alle Daten **lokal** auf dem Gerät
-gespeichert (kein Server, keine Internetverbindung nötig) - über `sembast`,
-eine reine Dart-Datenbank ohne native Kompilierung. iCloud-Sync ist als
-nächster Ausbauschritt vorgesehen (siehe unten).
-
-Für die Web/PWA-Variante (siehe unten, per Docker/unRAID gehostet) gilt das
-NICHT: dort speichert ein kleiner Backend-Server die Daten dauerhaft auf dem
-Server selbst (in einem Docker-Volume), damit alle Geräte/Browser dieselben
-Einträge sehen.
+Alle Daten werden **lokal** auf dem Gerät in einer SQLite-Datenbank
+gespeichert (kein Server, keine Internetverbindung nötig). iCloud-Sync ist
+als nächster Ausbauschritt vorgesehen (siehe unten).
 
 ## Wichtiger Hinweis zu diesem Projektstand
 
@@ -90,154 +75,6 @@ Funktion, die auf dem iPhone (Teilen-Menü) optimiert ist. Unter Windows
 eines "Teilen"-Fensters – das ist normal und kein Fehler, richtig getestet
 wird dieser Teil dann final auf dem iPhone.
 
-## Web-Variante (PWA) auf unRAID per Docker hosten
-
-Neben iPhone/Windows lässt sich dieselbe App auch als Web-App (PWA) bauen
-und auf deinem unRAID-Server per Docker laufen lassen.
-
-**Architektur:** Der Container enthält zwei Teile, die zusammen ausgeliefert
-werden: die gebaute Flutter-Web-App (HTML/JS) und einen kleinen
-Backend-Server (reines Dart, kein Flutter nötig). Anders als bei einer
-"nur Browser"-PWA speichert dieser Server die Einträge dauerhaft in einer
-Datei auf einem Docker-Volume - dadurch sehen alle Geräte/Browser, die die
-Seite öffnen, dieselben Daten, und die Daten überleben einen
-Container-Neustart oder -Update.
-
-**Login/Nutzerkonten:** Die Web/PWA-Variante hat ein echtes Login
-(Benutzername + Passwort). Jeder Nutzer sieht **ausschließlich seine
-eigenen Einträge** - ideal, wenn mehrere Kollegen dieselbe Instanz nutzen,
-aber niemand die Einträge der anderen sehen soll. Auf iPhone/Windows/etc.
-(lokale Speicherung, kein Server) gibt es weiterhin **kein** Login - dort
-sind die Daten sowieso nur auf dem jeweiligen Gerät.
-
-Beim allerersten Start des Containers (wenn noch kein einziger Nutzer
-existiert) wird automatisch ein Admin-Konto aus den Umgebungsvariablen
-`ADMIN_USERNAME`/`ADMIN_PASSWORD` angelegt (siehe `docker-compose.yml`).
-**Wichtig:** Ohne diese beiden Variablen kann sich niemand einloggen - der
-Server gibt dazu eine deutliche Warnung im Log aus. Mit diesem Admin-Konto
-kannst du dich danach im "Konto"-Tab der App einloggen und dort über
-"Neuen Kollegen anlegen" weitere Nutzer (optional auch mit Admin-Rechten)
-hinzufügen - eine eigene Admin-Oberfläche außerhalb der App gibt es
-bewusst nicht.
-
-**Wo liegen die Login-Daten?** Alle Daten (Einträge, Nutzerkonten,
-Sitzungen) landen in EINER Datei: `zeiterfassung.db` im Docker-Volume
-(`/data`, bei dir `/mnt/user/appdata/zeiterfassung/zeiterfassung.db`).
-Das ist keine SQLite-Datei, sondern eine sembast-Datenbank - die verwaltet
-intern mehrere getrennte "Tabellen" (genannt Stores: `time_entries`,
-`users`, `sessions`, ...) in dieser einen Datei. Passwörter stehen dort
-NIE im Klartext, sondern nur als bcrypt-Hash (eine Einwegverschlüsselung -
-selbst mit Zugriff auf die Datei lässt sich das Passwort daraus nicht
-zurückrechnen). Aktive Login-Sitzungen (Tokens) liegen dort dagegen als
-Klartext - wer Zugriff auf diese Datei hat, könnte sich mit einem noch
-gültigen Token als der jeweilige Nutzer ausgeben (bis zum Logout). Das ist
-der übliche Kompromiss bei Bearer-Token-Login; relevant ist er nur, wenn
-jemand direkten Zugriff auf deinen unRAID-Server/Docker-Volume bekommt -
-also derselbe Vertrauensbereich wie beim restlichen Server ohnehin. Die
-GLEICHNAMIGE Datei `zeiterfassung.db` auf deinem iPhone/Windows-Gerät
-(lokale Variante) ist eine komplett andere, separate Datei ohne jedes
-Login - dort gibt es kein Nutzerkonto-Konzept, nur deine eigenen
-Einträge.
-
-### Push-Erinnerungen (optional)
-
-Die Web/PWA-Variante kann werktags um 16:30 Uhr (Europe/Berlin) an alle
-Nutzer erinnern, die für den Tag noch keinen Eintrag im Logbuch haben -
-klassische Browser-Push-Benachrichtigung, funktioniert auch wenn die App
-gerade nicht offen ist (sofern sie einmal zum Home-Bildschirm hinzugefügt
-bzw. die Berechtigung erteilt wurde).
-
-Dafür braucht der Server ein eigenes Schlüsselpaar (VAPID), das ihn beim
-Push-Versand gegenüber Browsern ausweist. Setze dazu drei zusätzliche
-Umgebungsvariablen im Container (z. B. in `docker-compose.yml` oder im
-unRAID-Container-Template):
-
-```
-VAPID_PUBLIC_KEY=...
-VAPID_PRIVATE_KEY=...
-VAPID_SUBJECT=mailto:deine-email@example.com
-```
-
-Ein fertiges, für dich einmalig erzeugtes Schlüsselpaar bekommst du separat
-von mir im Chat (nicht in eine Datei/den Git-Verlauf schreiben - das sind
-Geheimnisse wie ein Passwort). Ohne diese drei Variablen bleibt die
-Funktion einfach deaktiviert, der Rest der App läuft normal weiter.
-
-Aktivieren kann jeder Nutzer die Erinnerungen selbst im "Konto"-Tab über
-"Erinnerungen aktivieren" (fragt einmalig die Browser-Berechtigung ab) -
-darunter gibt es auch "Test-Benachrichtigung senden", um den ganzen Weg
-sofort zu prüfen, ohne bis 16:30 Uhr zu warten.
-
-Das Bauen (Flutter-SDK + Dart-Compiler) passiert komplett in
-GitHub Actions - kostenlos, genau wie beim iOS-Build. unRAID muss dadurch
-selbst nichts kompilieren, sondern lädt nur das fertige Image.
-
-### 1. Fertiges Image bauen lassen (GitHub Actions)
-
-Die Workflow-Datei `.github/workflows/docker-build.yml` ist schon
-enthalten. Bei jedem Push auf `main` (oder manuell über den Button
-"Run workflow" im Tab "Actions" auf GitHub) baut GitHub automatisch ein
-Docker-Image und veröffentlicht es in der GitHub Container Registry (GHCR) -
-für ein öffentliches Repo kostenlos, genau wie die iOS-Action.
-
-Nach dem **ersten** erfolgreichen Lauf einmalig:
-1. Auf GitHub im Repo rechts auf "Packages" klicken (oder
-   `github.com/<dein-name>?tab=packages`) - dort taucht das neue Paket
-   (Image) auf.
-2. Paket öffnen → "Package settings" → "Change visibility" → **Public**
-   stellen. Sonst kann unRAID das Image später nicht ohne Login herunterladen.
-
-### 2. Auf unRAID einrichten
-
-Im unRAID-Webinterface, Tab **Docker** → unten **"Add Container"**:
-
-- **Name:** `zeiterfassung`
-- **Repository:** `ghcr.io/<dein-github-name>/<dein-repo-name>:latest`
-  (z. B. `ghcr.io/nohopes/zeiterfassungtest:latest`)
-- **Port-Zuordnung:** Container-Port `8080` → Host-Port z. B. `8080`
-  (frei wählbar, falls belegt)
-- **Pfad-Zuordnung (Volume):** Container-Pfad `/data` → Host-Pfad z. B.
-  `/mnt/user/appdata/zeiterfassung` (hier landen die Zeiterfassungsdaten
-  dauerhaft)
-- **Variablen (Environment):** unbedingt `ADMIN_USERNAME` und
-  `ADMIN_PASSWORD` mit deinen gewünschten Zugangsdaten anlegen - damit
-  entsteht beim ersten Start dein Admin-Konto zum Einloggen. Ohne diese
-  beiden Variablen kann sich niemand anmelden.
-- Übernehmen/Apply klicken - unRAID lädt das Image herunter und startet
-  den Container.
-
-Danach ist die App unter `http://<ip-deines-unraid-servers>:8080`
-erreichbar - im Handy-Browser öffnen und über "Zum Startbildschirm
-hinzufügen" installieren, dann verhält sie sich wie eine echte App.
-
-Falls du stattdessen die "Docker Compose Manager"-Plugin von unRAID nutzt,
-kannst du auch einfach den Inhalt von `docker-compose.yml` als neuen Stack
-einfügen (Pfad `./data` dann auf `/mnt/user/appdata/zeiterfassung` ändern).
-
-### 3. Nach Code-Änderungen aktualisieren
-
-1. Änderungen nach GitHub pushen (oder Workflow manuell auslaufen lassen) -
-   GitHub Actions baut automatisch ein neues `:latest`-Image.
-2. Auf unRAID im Docker-Tab auf das Container-Icon klicken → **"Force
-   Update"** (oder Container entfernen und mit denselben Einstellungen neu
-   hinzufügen). Die gespeicherten Daten im Volume bleiben davon unberührt.
-
-### Hinweis zum PDF-Export in der Browser-Variante
-
-Der "Teilen"-Dialog ist wie unter Windows aufs iPhone optimiert - im
-Browser läuft das wahrscheinlich auf einen Download/Speichern-Dialog
-hinaus. Funktional (PDF wird korrekt erzeugt) macht das keinen Unterschied.
-
-### Lokal testen (ohne unRAID)
-
-```bash
-cd zeiterfassung
-docker compose up -d --build
-```
-
-Danach unter `http://localhost:8080` erreichbar, Daten landen im Ordner
-`./data`.
-
 ## Nächste Schritte (wie in unserem Gespräch besprochen)
 
 1. **Projekt zu GitHub hochladen** (privates Repo reicht):
@@ -265,6 +102,44 @@ Danach unter `http://localhost:8080` erreichbar, Daten landen im Ordner
    automatisch und lädt sie zu TestFlight hoch – ganz ohne dass du selbst
    Xcode bedienen musst.
 
+## Neue Funktionen (aktuelle Version)
+
+- **Angemeldeter Nutzer im Header**: In der Web/PWA-Variante steht rechts
+  oben neben "Stunden Logbuch" jetzt der Name des eingeloggten Nutzers.
+- **Komplette Liste für Woche/Monat**: Tippen auf die Kachel "Diese Woche"
+  bzw. "Dieser Monat" auf der Startseite öffnet eine vollständige,
+  chronologisch sortierte Liste aller Einträge des Zeitraums (neuste oben,
+  älteste unten) inkl. Gesamtsumme.
+- **Kalender mit zwei Punkten**: In der Monatsübersicht zeigt jeder Tag mit
+  Einträgen bis zu zwei kleine Punkte - Amber für Werkstatt, Petrol für
+  Kunde - damit auf einen Blick erkennbar ist, welche Art von Eintrag an
+  diesem Tag existiert.
+- **Profil mit Name & Unterschrift**: Unter "Konto" kann jeder Nutzer (auf
+  allen Plattformen) seinen Namen hinterlegen sowie einmalig eine
+  Unterschrift zeichnen (z. B. mit dem Finger/Stift auf einem iPad). Beides
+  wird auf dem Werkstatt-Wochenbericht automatisch mit ausgegeben, sofern
+  hinterlegt - ansonsten bleiben Name/Unterschriftszeile einfach leer. Auf
+  iOS/Windows liegen diese Angaben lokal auf dem Gerät, in der Web/PWA-
+  Variante am eingeloggten Nutzerkonto auf dem Server.
+- **Werkstatt-Wochenbericht (einziger Werkstatt-PDF-Export)**: Der frühere
+  monatliche Werkstatt-PDF-Export wurde entfernt - es gibt jetzt bewusst nur
+  noch EIN Werkstatt-PDF-Format, den Wochenbericht. Erreichbar über die
+  Kachel "Diese Woche" auf der Startseite oder über den Button
+  "Werkstatt-Wochenbericht öffnen" in der Monatsübersicht. Die Ansicht hat
+  eine eigene Wochen-Navigation (Pfeile), man ist also nicht auf die
+  aktuelle Woche beschränkt, sondern kann auch für vergangene (oder
+  zukünftige) Wochen einen Bericht exportieren. Enthält:
+  - Kalenderwoche (KW) inkl. Datumsbereich neben dem Monat im Titel, z. B.
+    "August 2026 (KW 34: 17.08.–23.08.)"
+  - einer "Kontrolle"-Spalte neben der Tätigkeit zum manuellen Abhaken durch
+    das Büro, sobald eine Zeile erfasst wurde
+  - einem Unterschriften-/Namensfeld unten, automatisch befüllt aus dem
+    Profil (siehe oben)
+
+  Der "Gesamtbericht" (alle Einträge inkl. Kunde, zur eigenen Sicherung)
+  bleibt weiterhin als separater, monatlicher Export in der
+  Monatsübersicht bestehen - das ist kein offizielles Werkstatt-Dokument.
+
 ## Noch offen / nächste Ausbaustufe
 
 - **iCloud-Backup**: aktuell nur lokale Speicherung. Für echten
@@ -284,29 +159,13 @@ Danach unter `http://localhost:8080` erreichbar, Daten landen im Ordner
 zeiterfassung/
   lib/
     models/time_entry.dart        # Datenmodell + Umrechnung Map<->Objekt
-    models/preset_activity.dart   # Datenmodell für selbst angelegte Tätigkeits-Vorlagen
-    utils/time_rounding.dart      # Dauer-Berechnung, 0,25h-Rundung, Zeit-Arithmetik
-    db/database_helper.dart       # Fassade: wählt io- oder web-Implementierung
-    db/database_helper_io.dart    # lokale sembast-Datenbank (iOS/Windows/macOS/Linux)
-    db/database_helper_web.dart   # REST-Client fürs Backend (Web/PWA), inkl. Auth-Header
-    auth/auth_gate.dart           # Fassade: Login-Zwang nur für Web/PWA
-    services/auth_service.dart    # Login-Status, Token-Speicherung (Web/PWA)
-    services/push_service.dart    # Push-Erinnerungen an-/abmelden (Fassade io/web)
-    services/pdf_export_service.dart  # PDF-Export (Werkstatt + Gesamtbericht)
+    utils/time_rounding.dart      # Dauer-Berechnung & 0,25h-Rundung
+    db/database_helper.dart       # lokale SQLite-Datenbank
+    services/pdf_export_service.dart  # Werkstatt-PDF-Export
     screens/home_screen.dart      # Tagesansicht
-    screens/add_entry_screen.dart # Eintrag anlegen/bearbeiten, Vorlagen, Pause
+    screens/add_entry_screen.dart # Eintrag anlegen/bearbeiten
     screens/month_overview_screen.dart # Monatsübersicht + PDF-Export
-    screens/login_screen.dart     # Login-Formular (Web/PWA)
-    screens/account_screen.dart   # Konto/Nutzerverwaltung/Erinnerungen (Fassade io/web)
     main.dart
-  web/push/push-sw.js             # Eigener Service-Worker nur für Push (Web/PWA)
-  server/                          # Backend für die PWA (reines Dart, kein Flutter)
-    bin/server.dart                 # REST-API + Ausliefern der Web-App + sembast-Speicherung
-    lib/web_push.dart               # VAPID-Signatur + RFC-8291-Verschlüsselung (reines Dart)
-    pubspec.yaml
   pubspec.yaml
-  codemagic.yaml                  # Cloud-Build-Konfiguration (Apple Developer Program)
-  Dockerfile, docker-compose.yml  # PWA per Docker/unRAID hosten
-  .github/workflows/docker-build.yml # baut & veröffentlicht das Docker-Image (GHCR)
-  .github/workflows/ios-unsigned-build.yml # baut die unsignierte iOS-IPA
+  codemagic.yaml                  # Cloud-Build-Konfiguration
 ```

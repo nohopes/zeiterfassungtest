@@ -9,28 +9,16 @@ import 'package:printing/printing.dart';
 import '../models/time_entry.dart';
 import '../utils/time_rounding.dart';
 
-/// Erstellt und teilt einen monatlichen PDF-Bericht der Werkstatt-Stunden.
-/// Kunden-Einträge fließen bewusst NICHT in dieses PDF ein, da sie nur zur
-/// eigenen Kontrolle dienen.
+/// Erstellt und teilt PDF-Berichte. Der offizielle Werkstatt-Bericht ist
+/// bewusst nur noch wochenweise verfügbar (siehe [exportAndShareWerkstattWeek])
+/// - der frühere monatliche Werkstatt-Export wurde entfernt, damit es nur
+/// noch EIN Werkstatt-PDF-Format gibt.
 class PdfExportService {
-  static Future<void> exportAndShareWerkstattMonth({
-    required int year,
-    required int month,
-    required List<TimeEntry> entries,
-  }) async {
-    final bytes = await _buildPdf(year: year, month: month, entries: entries);
-    final fileLabel = DateFormat('yyyy-MM').format(DateTime(year, month));
-    await Printing.sharePdf(
-      bytes: bytes,
-      filename: 'Werkstattstunden_$fileLabel.pdf',
-    );
-  }
-
   /// Erstellt und teilt einen vollständigen Monatsbericht - ALLE Einträge
   /// (Werkstatt UND Kunden), gruppiert nach Kunde/Werkstatt mit
   /// Zwischensummen. Gedacht als persönliche Sicherung/Übersicht, nicht als
-  /// offizielles Werkstatt-Dokument (dafür weiterhin
-  /// [exportAndShareWerkstattMonth] verwenden).
+  /// offizielles Werkstatt-Dokument (dafür [exportAndShareWerkstattWeek]
+  /// verwenden).
   static Future<void> exportAndShareFullMonth({
     required int year,
     required int month,
@@ -44,80 +32,26 @@ class PdfExportService {
     );
   }
 
-  static Future<Uint8List> _buildPdf({
-    required int year,
-    required int month,
+  /// Erstellt und teilt den wöchentlichen Werkstatt-Bericht - inkl. Kalender-
+  /// woche (KW) im Titel, einer Kontrollspalte zum Abhaken durch das Büro,
+  /// sowie Name und (falls im Profil hinterlegt) Unterschrift.
+  static Future<void> exportAndShareWerkstattWeek({
+    required DateTime weekStart,
     required List<TimeEntry> entries,
+    String? authorName,
+    Uint8List? signatureBytes,
   }) async {
-    final werkstattEntries = entries.where((e) => e.isWerkstatt).toList()
-      ..sort(_byDateAndStart);
-
-    final doc = pw.Document();
-    final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(DateTime(year, month));
-    final totalHours =
-        werkstattEntries.fold<double>(0, (sum, e) => sum + e.durationHours);
-
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
-        header: (context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text(
-              'Werkstattstunden',
-              style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.Text(monthLabel, style: const pw.TextStyle(fontSize: 14)),
-            pw.SizedBox(height: 12),
-          ],
-        ),
-        build: (context) => [
-          if (werkstattEntries.isEmpty)
-            pw.Text('Keine Werkstatt-Einträge in diesem Monat.')
-          else
-            pw.Table(
-              border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey600),
-              columnWidths: const {
-                0: pw.FlexColumnWidth(2.2),
-                1: pw.FlexColumnWidth(1.8),
-                2: pw.FlexColumnWidth(1.2),
-                3: pw.FlexColumnWidth(4),
-              },
-              children: [
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColors.grey300),
-                  children: [
-                    _headerCell('Datum'),
-                    _headerCell('Uhrzeit'),
-                    _headerCell('Dauer'),
-                    _headerCell('Tätigkeit'),
-                  ],
-                ),
-                for (final e in werkstattEntries)
-                  pw.TableRow(
-                    children: [
-                      _cell(DateFormat('EEE, dd.MM.yyyy', 'de_DE').format(e.date)),
-                      _cell('${_fmtTime(e.startTime)} - ${_fmtTime(e.endTime)}'),
-                      _cell('${formatHours(e.durationHours)} Std.'),
-                      _cell(e.activity),
-                    ],
-                  ),
-              ],
-            ),
-          pw.SizedBox(height: 16),
-          pw.Align(
-            alignment: pw.Alignment.centerRight,
-            child: pw.Text(
-              'Gesamt: ${formatHours(totalHours)} Std.',
-              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
+    final bytes = await _buildWeekPdf(
+      weekStart: weekStart,
+      entries: entries,
+      authorName: authorName,
+      signatureBytes: signatureBytes,
     );
-
-    return doc.save();
+    final fileLabel = DateFormat('yyyy-MM-dd').format(weekStart);
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: 'Werkstatt_Wochenbericht_$fileLabel.pdf',
+    );
   }
 
   static Future<Uint8List> _buildFullReportPdf({
@@ -227,6 +161,152 @@ class PdfExportService {
     );
 
     return doc.save();
+  }
+
+  static Future<Uint8List> _buildWeekPdf({
+    required DateTime weekStart,
+    required List<TimeEntry> entries,
+    String? authorName,
+    Uint8List? signatureBytes,
+  }) async {
+    final weekEnd = weekStart.add(const Duration(days: 6));
+    final werkstattEntries = entries.where((e) => e.isWerkstatt).toList()
+      ..sort(_byDateAndStart);
+
+    final doc = pw.Document();
+    final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(weekStart);
+    final kw = isoWeekNumber(weekStart);
+    final rangeLabel =
+        '${DateFormat('dd.MM.').format(weekStart)}–${DateFormat('dd.MM.').format(weekEnd)}';
+    final totalHours =
+        werkstattEntries.fold<double>(0, (sum, e) => sum + e.durationHours);
+    final signatureImage =
+        signatureBytes != null ? pw.MemoryImage(signatureBytes) : null;
+    final hasName = authorName != null && authorName.trim().isNotEmpty;
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        header: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              'Werkstatt-Wochenbericht',
+              style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.Text(
+              '$monthLabel (KW $kw: $rangeLabel)',
+              style: const pw.TextStyle(fontSize: 14),
+            ),
+            pw.SizedBox(height: 12),
+          ],
+        ),
+        build: (context) => [
+          if (werkstattEntries.isEmpty)
+            pw.Text('Keine Werkstatt-Einträge in dieser Woche.')
+          else
+            pw.Table(
+              border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey600),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(2),
+                1: pw.FlexColumnWidth(1.7),
+                2: pw.FlexColumnWidth(1.1),
+                3: pw.FlexColumnWidth(3.5),
+                4: pw.FlexColumnWidth(1.1),
+              },
+              children: [
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+                  children: [
+                    _headerCell('Datum'),
+                    _headerCell('Uhrzeit'),
+                    _headerCell('Dauer'),
+                    _headerCell('Tätigkeit'),
+                    _headerCell('Kontrolle'),
+                  ],
+                ),
+                for (final e in werkstattEntries)
+                  pw.TableRow(
+                    children: [
+                      _cell(DateFormat('EEE, dd.MM.yyyy', 'de_DE').format(e.date)),
+                      _cell('${_fmtTime(e.startTime)} - ${_fmtTime(e.endTime)}'),
+                      _cell('${formatHours(e.durationHours)} Std.'),
+                      _cell(e.activity),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Center(
+                          child: pw.Container(
+                            width: 12,
+                            height: 12,
+                            decoration: pw.BoxDecoration(
+                              border: pw.Border.all(
+                                width: 0.8,
+                                color: PdfColors.grey700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          pw.SizedBox(height: 16),
+          pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Text(
+              'Gesamt: ${formatHours(totalHours)} Std.',
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+          pw.SizedBox(height: 36),
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  if (signatureImage != null)
+                    pw.SizedBox(
+                      height: 60,
+                      width: 180,
+                      child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
+                    )
+                  else
+                    const pw.SizedBox(height: 60),
+                  pw.Container(
+                    width: 200,
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(
+                        top: pw.BorderSide(width: 0.8, color: PdfColors.grey700),
+                      ),
+                    ),
+                    padding: const pw.EdgeInsets.only(top: 4),
+                    child: pw.Text(
+                      hasName ? authorName!.trim() : 'Unterschrift',
+                      style: const pw.TextStyle(fontSize: 10),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    return doc.save();
+  }
+
+  /// ISO-8601-Kalenderwoche (Montag-Sonntag, KW 1 enthält den ersten
+  /// Donnerstag des Jahres). Öffentlich, damit auch die Wochen-Navigation
+  /// in [EntriesListScreen] dieselbe Berechnung für die Anzeige nutzen kann.
+  static int isoWeekNumber(DateTime date) {
+    final d = DateTime.utc(date.year, date.month, date.day);
+    final thursday = d.add(Duration(days: 4 - d.weekday));
+    final firstDayOfYear = DateTime.utc(thursday.year, 1, 1);
+    return ((thursday.difference(firstDayOfYear).inDays) / 7).floor() + 1;
   }
 
   static int _byDateAndStart(TimeEntry a, TimeEntry b) {

@@ -8,6 +8,7 @@ import '../services/pdf_export_service.dart';
 import '../widgets/stamp_badge.dart';
 import 'customer_month_detail_screen.dart';
 import 'day_detail_screen.dart';
+import 'entries_list_screen.dart';
 
 class MonthOverviewScreen extends StatefulWidget {
   const MonthOverviewScreen({super.key});
@@ -22,7 +23,6 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   List<TimeEntry> _entries = [];
   bool _loading = true;
-  bool _exportingWerkstatt = false;
   bool _exportingFull = false;
 
   @override
@@ -68,19 +68,37 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
       .where((e) => e.isWerkstatt)
       .fold(0.0, (sum, e) => sum + e.durationHours);
 
-  Set<int> get _daysWithEntries => _entries.map((e) => e.date.day).toSet();
+  Set<int> get _werkstattDays =>
+      _entries.where((e) => e.isWerkstatt).map((e) => e.date.day).toSet();
 
-  Future<void> _exportWerkstattPdf() async {
-    setState(() => _exportingWerkstatt = true);
-    try {
-      await PdfExportService.exportAndShareWerkstattMonth(
-        year: _month.year,
-        month: _month.month,
-        entries: _entries,
-      );
-    } finally {
-      if (mounted) setState(() => _exportingWerkstatt = false);
-    }
+  Set<int> get _kundeDays =>
+      _entries.where((e) => !e.isWerkstatt).map((e) => e.date.day).toSet();
+
+  /// Montag der Woche, in der [day] liegt - gleiche Logik wie in
+  /// database_helper's entriesForWeek()/home_screen's _openWeekList().
+  DateTime _weekStartFor(DateTime day) {
+    final dateOnly = DateTime(day.year, day.month, day.day);
+    return dateOnly.subtract(Duration(days: dateOnly.weekday - 1));
+  }
+
+  /// Öffnet den Werkstatt-Wochenbericht - Ausgangspunkt ist die aktuelle
+  /// Woche, falls gerade der laufende Monat angezeigt wird, sonst die erste
+  /// Woche des angezeigten Monats. Von dort lässt sich mit den Pfeilen im
+  /// Wochenbericht zu jeder anderen Woche navigieren.
+  void _openWeekReport() {
+    final now = DateTime.now();
+    final isCurrentMonth = _month.year == now.year && _month.month == now.month;
+    final weekStart = _weekStartFor(isCurrentMonth ? now : DateTime(_month.year, _month.month, 1));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EntriesListScreen(
+          title: 'Wochenbericht',
+          startInclusive: weekStart,
+          endExclusive: weekStart.add(const Duration(days: 7)),
+          isWeek: true,
+        ),
+      ),
+    );
   }
 
   Future<void> _exportFullPdf() async {
@@ -122,7 +140,6 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
   Widget build(BuildContext context) {
     final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(_month);
     final customerTotals = _customerTotals;
-    final hasWerkstattEntries = _entries.any((e) => e.isWerkstatt);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Monatsübersicht')),
@@ -157,7 +174,8 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
                 const SizedBox(height: 8),
                 _MonthCalendar(
                   month: _month,
-                  daysWithEntries: _daysWithEntries,
+                  werkstattDays: _werkstattDays,
+                  kundeDays: _kundeDays,
                   onDayTap: _openDay,
                 ),
                 const SizedBox(height: 20),
@@ -165,21 +183,14 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
                   icon: Icons.build_rounded,
                   color: AppColors.amber,
                   title: 'Werkstatt (gesamt)',
-                  subtitle: 'Wird im PDF-Export ausgegeben',
+                  subtitle: 'Export im Werkstatt-Wochenbericht',
                   hours: _werkstattTotal,
                 ),
                 const SizedBox(height: 12),
                 FilledButton.icon(
-                  onPressed:
-                      (!hasWerkstattEntries || _exportingWerkstatt) ? null : _exportWerkstattPdf,
-                  icon: _exportingWerkstatt
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.picture_as_pdf),
-                  label: Text(_exportingWerkstatt ? 'Erstelle PDF …' : 'Werkstatt-PDF exportieren'),
+                  onPressed: _openWeekReport,
+                  icon: const Icon(Icons.picture_as_pdf),
+                  label: const Text('Werkstatt-Wochenbericht öffnen'),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
@@ -321,16 +332,20 @@ class _CustomerRow extends StatelessWidget {
   }
 }
 
-/// Kleiner Monatskalender mit Punkt-Markierung an Tagen mit Einträgen.
+/// Kleiner Monatskalender mit Punkt-Markierung an Tagen mit Einträgen -
+/// getrennt nach Werkstatt (Amber) und Kunde (Petrol), damit auf einen
+/// Blick erkennbar ist, welche Art von Eintrag an einem Tag existiert.
 /// Tippen auf einen Tag öffnet die Tagesdetailansicht.
 class _MonthCalendar extends StatelessWidget {
   final DateTime month;
-  final Set<int> daysWithEntries;
+  final Set<int> werkstattDays;
+  final Set<int> kundeDays;
   final ValueChanged<DateTime> onDayTap;
 
   const _MonthCalendar({
     required this.month,
-    required this.daysWithEntries,
+    required this.werkstattDays,
+    required this.kundeDays,
     required this.onDayTap,
   });
 
@@ -351,7 +366,8 @@ class _MonthCalendar extends StatelessWidget {
       final date = DateTime(month.year, month.month, day);
       final isToday =
           date.year == now.year && date.month == now.month && date.day == now.day;
-      final hasEntries = daysWithEntries.contains(day);
+      final hasWerkstatt = werkstattDays.contains(day);
+      final hasKunde = kundeDays.contains(day);
 
       cells.add(
         InkWell(
@@ -377,12 +393,31 @@ class _MonthCalendar extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Container(
-                  width: 5,
+                SizedBox(
                   height: 5,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: hasEntries ? AppColors.amber : Colors.transparent,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (hasWerkstatt)
+                        Container(
+                          width: 5,
+                          height: 5,
+                          margin: EdgeInsets.only(right: hasKunde ? 3 : 0),
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.amber,
+                          ),
+                        ),
+                      if (hasKunde)
+                        Container(
+                          width: 5,
+                          height: 5,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.teal,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],

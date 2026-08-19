@@ -65,6 +65,8 @@ Future<void> main() async {
     ..post('/api/auth/login', _login)
     ..post('/api/auth/logout', _logout)
     ..get('/api/auth/me', _me)
+    ..get('/api/profile', _getProfile)
+    ..put('/api/profile', _updateProfile)
     ..get('/api/admin/users', _adminListUsers)
     ..post('/api/admin/users', _adminCreateUser)
     ..delete('/api/admin/users/<id>', _adminDeleteUser)
@@ -245,6 +247,45 @@ Future<Response> _me(Request request) async {
     jsonEncode(_publicUser(userId, userRecord)),
     headers: {'content-type': 'application/json'},
   );
+}
+
+/// Persönliche Angaben für den Werkstatt-Wochenbericht (Name/Unterschrift) -
+/// getrennt von [_me]/[_publicUser], da diese Felder rein privat sind
+/// (die Unterschrift landet nie in der Admin-Nutzerliste).
+Future<Response> _getProfile(Request request) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+  final userRecord = await _usersStore.record(userId).get(_db);
+  if (userRecord == null) return _unauthorized();
+  return Response.ok(
+    jsonEncode({
+      'displayName': userRecord['displayName'],
+      'signature': userRecord['signature'],
+    }),
+    headers: {'content-type': 'application/json'},
+  );
+}
+
+/// Aktualisiert nur die Felder, die im Body tatsächlich mitgeschickt
+/// wurden (partielles Update) - so kann z. B. nur der Name gespeichert
+/// werden, ohne die Unterschrift zu berühren, und umgekehrt.
+Future<Response> _updateProfile(Request request) async {
+  final userId = await _authenticate(request);
+  if (userId == null) return _unauthorized();
+
+  final body = await request.readAsString();
+  final map = jsonDecode(body) as Map<String, dynamic>;
+  final updates = <String, Object?>{};
+  if (map.containsKey('displayName')) {
+    updates['displayName'] = (map['displayName'] as String?)?.trim();
+  }
+  if (map.containsKey('signature')) {
+    updates['signature'] = map['signature'] as String?;
+  }
+  if (updates.isNotEmpty) {
+    await _usersStore.record(userId).update(_db, updates);
+  }
+  return Response.ok(jsonEncode({'ok': true}), headers: {'content-type': 'application/json'});
 }
 
 // --- Admin-Endpunkte (Nutzerverwaltung) -------------------------------

@@ -3,12 +3,14 @@ import 'package:intl/intl.dart';
 
 import '../db/database_helper.dart';
 import '../models/time_entry.dart';
+import '../services/auth_service.dart';
 import '../theme/design_tokens.dart';
 import '../utils/time_rounding.dart';
 import '../widgets/ledger_row.dart';
 import '../widgets/stamp_badge.dart';
 import '../widgets/stat_tile.dart';
 import 'add_entry_screen.dart';
+import 'entries_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -112,14 +114,60 @@ class _HomeScreenState extends State<HomeScreen> {
 
   double get _dayTotal => _entries.fold(0.0, (sum, e) => sum + e.durationHours);
 
+  void _openWeekList() {
+    final now = DateTime.now();
+    final dateOnly = DateTime(now.year, now.month, now.day);
+    final monday = dateOnly.subtract(Duration(days: dateOnly.weekday - 1));
+    final nextMonday = monday.add(const Duration(days: 7));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EntriesListScreen(
+          title: 'Diese Woche',
+          startInclusive: monday,
+          endExclusive: nextMonday,
+          isWeek: true,
+        ),
+      ),
+    );
+  }
+
+  void _openMonthList() {
+    final now = DateTime.now();
+    final firstOfMonth = DateTime(now.year, now.month, 1);
+    final firstOfNextMonth = DateTime(now.year, now.month + 1, 1);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EntriesListScreen(
+          title: 'Dieser Monat',
+          startInclusive: firstOfMonth,
+          endExclusive: firstOfNextMonth,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dateLabel = DateFormat('EEEE, dd.MM.yyyy', 'de_DE').format(_selectedDay);
+    final loggedInUsername = AuthService.instance.username;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Stunden Logbuch'),
         actions: [
+          if (loggedInUsername != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Center(
+                child: Text(
+                  loggedInUsername,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
           if (!_isToday)
             TextButton(
               onPressed: _goToToday,
@@ -138,6 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     label: 'Diese Woche',
                     value: '${formatHours(_weekTotal)} Std.',
                     icon: Icons.date_range_rounded,
+                    onTap: _openWeekList,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -147,6 +196,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     value: '${formatHours(_monthTotal)} Std.',
                     icon: Icons.calendar_month_rounded,
                     accentColor: AppColors.teal,
+                    onTap: _openMonthList,
                   ),
                 ),
               ],

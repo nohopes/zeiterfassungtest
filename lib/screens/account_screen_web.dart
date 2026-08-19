@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
 import '../services/push_service.dart';
 import '../theme/design_tokens.dart';
+import '../widgets/profile_section.dart';
 
 /// Web/PWA-Variante: zeigt den eingeloggten Nutzer, einen Logout-Button,
 /// und für Admins zusätzlich eine einfache Verwaltung der Kollegen-Konten.
@@ -277,6 +278,8 @@ class _AccountScreenState extends State<AccountScreen> {
               label: const Text('Test-Benachrichtigung senden'),
             ),
           ],
+          const SizedBox(height: 28),
+          const ProfileSection(),
           if (auth.isAdmin) ...[
             const SizedBox(height: 28),
             Row(
