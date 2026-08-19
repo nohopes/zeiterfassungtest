@@ -274,7 +274,7 @@ class PdfExportService {
                       child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
                     )
                   else
-                    const pw.SizedBox(height: 60),
+                    pw.SizedBox(height: 60),
                   pw.Container(
                     width: 200,
                     decoration: const pw.BoxDecoration(
