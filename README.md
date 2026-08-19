@@ -104,12 +104,16 @@ wird dieser Teil dann final auf dem iPhone.
 
 ## Neue Funktionen (aktuelle Version)
 
-- **Angemeldeter Nutzer im Header**: In der Web/PWA-Variante steht rechts
-  oben neben "Stunden Logbuch" jetzt der Name des eingeloggten Nutzers.
+- **Profil-Name im Header**: Rechts oben neben "Stunden Logbuch" steht der
+  im Profil hinterlegte Name (siehe "Profil mit Name & Unterschrift"
+  unten) - bewusst NICHT der Login-Benutzername. Solange noch kein
+  Profilname eingetragen wurde, wird in der Web/PWA-Variante ersatzweise
+  der Login-Benutzername angezeigt.
 - **Komplette Liste für Woche/Monat**: Tippen auf die Kachel "Diese Woche"
   bzw. "Dieser Monat" auf der Startseite öffnet eine vollständige,
-  chronologisch sortierte Liste aller Einträge des Zeitraums (neuste oben,
-  älteste unten) inkl. Gesamtsumme.
+  chronologisch sortierte Liste aller Einträge des Zeitraums (Kunde UND
+  Werkstatt gemischt, neuste oben, älteste unten) inkl. Gesamtsumme - reine
+  Übersicht, kein PDF-Export (dafür siehe Werkstatt-Wochenbericht unten).
 - **Kalender mit zwei Punkten**: In der Monatsübersicht zeigt jeder Tag mit
   Einträgen bis zu zwei kleine Punkte - Amber für Werkstatt, Petrol für
   Kunde - damit auf einen Blick erkennbar ist, welche Art von Eintrag an
@@ -123,16 +127,16 @@ wird dieser Teil dann final auf dem iPhone.
   Variante am eingeloggten Nutzerkonto auf dem Server.
 - **Werkstatt-Wochenbericht (einziger Werkstatt-PDF-Export)**: Der frühere
   monatliche Werkstatt-PDF-Export wurde entfernt - es gibt jetzt bewusst nur
-  noch EIN Werkstatt-PDF-Format, den Wochenbericht. Erreichbar über die
-  Kachel "Diese Woche" auf der Startseite oder über den Button
-  "Werkstatt-Wochenbericht öffnen" in der Monatsübersicht. Die Ansicht hat
-  eine eigene Wochen-Navigation (Pfeile), man ist also nicht auf die
-  aktuelle Woche beschränkt, sondern kann auch für vergangene (oder
-  zukünftige) Wochen einen Bericht exportieren. Enthält:
+  noch EIN Werkstatt-PDF-Format, den Wochenbericht. Erreichbar über den
+  Button "Werkstatt-Wochenbericht öffnen" in der Monatsübersicht - ein
+  eigener, schlanker Screen (nur Wochen-Navigation, Stundensumme und
+  Export-Button, bewusst OHNE Einzel-Einträge-Liste). Mit den Pfeilen ist
+  man nicht auf die aktuelle Woche beschränkt, sondern kann auch für
+  vergangene (oder zukünftige) Wochen einen Bericht exportieren. Enthält:
   - Kalenderwoche (KW) inkl. Datumsbereich neben dem Monat im Titel, z. B.
     "August 2026 (KW 34: 17.08.–23.08.)"
-  - einer "Kontrolle"-Spalte neben der Tätigkeit zum manuellen Abhaken durch
-    das Büro, sobald eine Zeile erfasst wurde
+  - einer Spalte "Eingetragen Büro" neben der Tätigkeit zum manuellen
+    Abhaken durch das Büro, sobald eine Zeile erfasst wurde
   - einem Unterschriften-/Namensfeld unten, automatisch befüllt aus dem
     Profil (siehe oben)
 

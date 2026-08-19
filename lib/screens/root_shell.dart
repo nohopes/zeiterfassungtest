@@ -17,12 +17,13 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> {
   int _index = 0;
 
-  // GlobalKey statt const-Liste, damit wir den Monats-Screen von außen zum
-  // Neuladen anstoßen können (siehe _onDestinationSelected).
+  // GlobalKeys statt const-Liste, damit wir Screens von außen zum Neuladen
+  // anstoßen können (siehe _onDestinationSelected).
+  final _homeKey = GlobalKey<HomeScreenState>();
   final _monthKey = GlobalKey<MonthOverviewScreenState>();
 
   late final List<Widget> _screens = [
-    const HomeScreen(),
+    HomeScreen(key: _homeKey),
     MonthOverviewScreen(key: _monthKey),
     const SearchScreen(),
     const AccountScreen(),
@@ -30,6 +31,11 @@ class _RootShellState extends State<RootShell> {
 
   void _onDestinationSelected(int i) {
     setState(() => _index = i);
+    if (i == 0) {
+      // Beim Zurückwechseln auf "Tag" den Profil-Namen im Header neu laden -
+      // falls er gerade eben unter "Konto" geändert wurde.
+      _homeKey.currentState?.reloadProfileName();
+    }
     if (i == 1) {
       // Beim Wechsel auf "Monat" neu laden - IndexedStack hält den Screen
       // dauerhaft am Leben, er bekäme neue Einträge aus anderen Tabs sonst

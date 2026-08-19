@@ -8,7 +8,7 @@ import '../services/pdf_export_service.dart';
 import '../widgets/stamp_badge.dart';
 import 'customer_month_detail_screen.dart';
 import 'day_detail_screen.dart';
-import 'entries_list_screen.dart';
+import 'werkstatt_week_report_screen.dart';
 
 class MonthOverviewScreen extends StatefulWidget {
   const MonthOverviewScreen({super.key});
@@ -91,12 +91,7 @@ class MonthOverviewScreenState extends State<MonthOverviewScreen> {
     final weekStart = _weekStartFor(isCurrentMonth ? now : DateTime(_month.year, _month.month, 1));
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => EntriesListScreen(
-          title: 'Wochenbericht',
-          startInclusive: weekStart,
-          endExclusive: weekStart.add(const Duration(days: 7)),
-          isWeek: true,
-        ),
+        builder: (_) => WerkstattWeekReportScreen(initialWeekStart: weekStart),
       ),
     );
   }

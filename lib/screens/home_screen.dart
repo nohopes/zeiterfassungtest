@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../db/database_helper.dart';
 import '../models/time_entry.dart';
 import '../services/auth_service.dart';
+import '../services/profile_service.dart';
 import '../theme/design_tokens.dart';
 import '../utils/time_rounding.dart';
 import '../widgets/ledger_row.dart';
@@ -16,13 +17,18 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+/// Nicht mehr privat, damit RootShell (via GlobalKey) [reloadProfileName]
+/// aufrufen kann, wenn der "Tag"-Tab wieder angetippt wird - so zeigt der
+/// Header sofort den aktuellen Profil-Namen, falls er zuvor unter "Konto"
+/// geändert wurde (siehe Kommentar zu MonthOverviewScreenState).
+class HomeScreenState extends State<HomeScreen> {
   DateTime _selectedDay = DateTime.now();
   List<TimeEntry> _entries = [];
   bool _loading = true;
+  String? _profileName;
 
   double _weekTotal = 0;
   double _monthTotal = 0;
@@ -32,6 +38,20 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadEntries();
     _loadStats();
+    reloadProfileName();
+  }
+
+  /// Lädt den im Profil hinterlegten Namen (siehe ProfileService) für die
+  /// Anzeige rechts im Header - bewusst NICHT der Login-Benutzername.
+  Future<void> reloadProfileName() async {
+    try {
+      final profile = await ProfileService.instance.loadProfile();
+      if (!mounted) return;
+      setState(() => _profileName = profile.displayName);
+    } catch (_) {
+      // Kein Profil-Backend auf dieser Plattform verfügbar o. Ä. - dann
+      // bleibt der Header einfach ohne Namen.
+    }
   }
 
   Future<void> _loadEntries() async {
@@ -125,7 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
           title: 'Diese Woche',
           startInclusive: monday,
           endExclusive: nextMonday,
-          isWeek: true,
         ),
       ),
     );
@@ -149,18 +168,24 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final dateLabel = DateFormat('EEEE, dd.MM.yyyy', 'de_DE').format(_selectedDay);
-    final loggedInUsername = AuthService.instance.username;
+    // Zeigt bevorzugt den im Profil hinterlegten Namen, sonst als Fallback
+    // den Login-Benutzernamen (Web/PWA) - so steht auf jeden Fall etwas da,
+    // solange noch kein Profilname eingetragen wurde.
+    final trimmedProfileName = _profileName?.trim();
+    final headerName = (trimmedProfileName != null && trimmedProfileName.isNotEmpty)
+        ? trimmedProfileName
+        : AuthService.instance.username;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Stunden Logbuch'),
         actions: [
-          if (loggedInUsername != null)
+          if (headerName != null)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Center(
                 child: Text(
-                  loggedInUsername,
+                  headerName,
                   style: Theme.of(context)
                       .textTheme
                       .bodyMedium

@@ -212,8 +212,8 @@ class PdfExportService {
                 0: pw.FlexColumnWidth(2),
                 1: pw.FlexColumnWidth(1.7),
                 2: pw.FlexColumnWidth(1.1),
-                3: pw.FlexColumnWidth(3.5),
-                4: pw.FlexColumnWidth(1.1),
+                3: pw.FlexColumnWidth(3.2),
+                4: pw.FlexColumnWidth(1.5),
               },
               children: [
                 pw.TableRow(
@@ -223,7 +223,7 @@ class PdfExportService {
                     _headerCell('Uhrzeit'),
                     _headerCell('Dauer'),
                     _headerCell('Tätigkeit'),
-                    _headerCell('Kontrolle'),
+                    _headerCell('Eingetragen Büro'),
                   ],
                 ),
                 for (final e in werkstattEntries)
