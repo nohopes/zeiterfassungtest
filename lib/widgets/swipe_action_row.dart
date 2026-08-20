@@ -134,18 +134,32 @@ class _SwipeActionRowState extends State<SwipeActionRow>
                   ],
                 ),
               ),
-              // WICHTIG: Positioned statt Transform.translate - Transform
-              // verschiebt nur das Gemalte, nicht die Hit-Test-Box des
-              // GestureDetectors (die bliebe bei der vollen, unverschobenen
-              // Zeilenbreite stehen und würde Taps auf die aufgedeckten
-              // Bearbeiten/Löschen-Buttons darunter abfangen). Positioned
-              // verschiebt die tatsächliche Layout-Position, dadurch geben
-              // Taps rechts vom Inhalt korrekt an den Stack darunter weiter.
-              Positioned(
-                left: _dragX,
-                width: _rowWidth,
-                top: 0,
-                bottom: 0,
+              // WICHTIG: Transform.translate als NICHT in Positioned
+              // gewrapptes Stack-Kind - nur so behält die Zeile ihre
+              // natürliche Höhe. Ein Stack, dessen Kinder ALLE positioniert
+              // sind (wie in einer vorherigen Version dieser Datei, die
+              // hier stattdessen Positioned(left: _dragX, ...) nutzte),
+              // kollabiert innerhalb einer ListView auf Höhe 0 - ListView
+              // gibt seinen Kindern eine unbeschränkte Höhe, und ohne
+              // mindestens ein NICHT positioniertes Kind hat der Stack
+              // dann keine Grundlage, seine eigene Höhe zu bestimmen. Genau
+              // das ließ zuletzt ganze Einträge unsichtbar werden, obwohl
+              // sie noch in der Tagessumme mitzählten.
+              //
+              // WICHTIG 2: GestureDetector als KIND von Transform.translate
+              // (nicht als Elternteil, wie ursprünglich vor dem
+              // Positioned-Zwischenstand) - Flutter rechnet eingehende
+              // Tap-Positionen dann korrekt anhand der Inversen des
+              // Transforms in Kind-Koordinaten um. Ein Tap im aufgedeckten
+              // Bereich landet dadurch außerhalb der Bounds dieses Kindes
+              // und fällt automatisch durch zum darunterliegenden
+              // Stack-Kind (den Bearbeiten/Löschen-Buttons), statt (wie
+              // beim ursprünglichen Bug, als der GestureDetector der
+              // Elternteil des Transforms war) von einer immer an der
+              // vollen, unverschobenen Zeilenbreite stehenden Hit-Test-Box
+              // abgefangen zu werden.
+              Transform.translate(
+                offset: Offset(_dragX, 0),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
