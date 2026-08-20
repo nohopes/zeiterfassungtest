@@ -25,6 +25,16 @@ dependencies:
   # Für die 16:30-Erinnerung Mo-Fr in Europe/Berlin-Zeit (korrekte
   # Sommer-/Winterzeit-Umstellung ohne selbstgebaute Offset-Berechnung).
   timezone: ^0.11.1
+  # Für den automatischen Monats-E-Mail-Versand (server-seitiger Nachbau des
+  # Werkstatt-PDFs, siehe lib/pdf_report.dart) - reines Dart, keine
+  # Flutter-Abhängigkeit nötig.
+  pdf: ^3.11.0
+  # Reiner Dart-SMTP-Client für den Mail-Versand (siehe "Eigener
+  # SMTP-Zugang" in bin/server.dart) - bewusst kein Cloud-E-Mail-Dienst.
+  mailer: ^7.2.0
+  # Für deutsche Monats-/Wochentagsnamen im Server-PDF (z. B. "August 2026",
+  # "Mo, 03.08.2026") - reines Dart, unabhängig von flutter_localizations.
+  intl: ^0.19.0
 
 dev_dependencies:
   lints: ^4.0.0

@@ -24,6 +24,7 @@ class AppColors {
   static const rust = Color(0xFFC1553B); // Löschen/Warnung
   static const slate = Color(0xFF7C93B0); // Urlaub-Stempel
   static const clay = Color(0xFFB5654A); // Krankheit-Stempel (bewusst anders als "rust"/Fehler)
+  static const violet = Color(0xFFA98CD1); // "Diese Woche"-Kachel auf der Startseite
 }
 
 /// Zentrale Textstile für Zahlen, die "gezählt" werden - bewusst mit der

@@ -67,11 +67,11 @@ class PdfExportService {
     final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(DateTime(year, month));
     final totalHours = sorted.fold<double>(0, (sum, e) => sum + e.durationHours);
 
-    // Gruppierung für die Zusammenfassung oben (pro Kunde/Werkstatt) - Urlaub/
-    // Krankheit haben keine Stunden und tauchen daher separat unten in der
-    // Tabelle auf, aber nicht in dieser Std.-Zusammenfassung.
+    // Gruppierung für die Zusammenfassung oben (pro Kunde/Werkstatt/Urlaub/
+    // Krankheit) - Urlaub/Krankheit zählen pauschal mit
+    // TimeEntry.absenceDayHours Std. pro Tag mit.
     final totalsByName = <String, double>{};
-    for (final e in sorted.where((e) => !e.isAbsence)) {
+    for (final e in sorted) {
       totalsByName[e.name] = (totalsByName[e.name] ?? 0) + e.durationHours;
     }
 
@@ -151,7 +151,7 @@ class PdfExportService {
                             ? 'Ganztags'
                             : '${_fmtTime(e.startTime)} - ${_fmtTime(e.endTime)}',
                       ),
-                      _cell(e.isAbsence ? '-' : '${formatHours(e.durationHours)} Std.'),
+                      _cell('${formatHours(e.durationHours)} Std.'),
                       _cell(e.activity),
                     ],
                   ),
@@ -290,6 +290,11 @@ class PdfExportService {
                       hasName ? authorName!.trim() : 'Unterschrift',
                       style: const pw.TextStyle(fontSize: 10),
                     ),
+                  ),
+                  pw.SizedBox(height: 3),
+                  pw.Text(
+                    'Erstellt am ${DateFormat('dd.MM.yyyy', 'de_DE').format(DateTime.now())}',
+                    style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
                   ),
                 ],
               ),

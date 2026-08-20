@@ -46,6 +46,12 @@ Die Dauer wird aus Start-/Endzeit automatisch berechnet und auf
   Werkstatt-Dokument.
 - **Push-Erinnerungen**: optionale Browser-Benachrichtigung werktags um
   16:30 Uhr, falls für den Tag noch kein Eintrag existiert.
+- **Automatischer Monatsbericht per E-Mail**: optional, sofern im Profil
+  eine E-Mail-Adresse hinterlegt ist - der Server schickt dann automatisch
+  am 1. jedes Monats (bzw. am folgenden Montag, falls der 1. ein
+  Wochenende ist) um 07:00 Uhr den Werkstatt-Bericht des Vormonats als PDF.
+  Einen Tag vorher, um 18:00 Uhr, kommt zusätzlich eine Push-Erinnerung,
+  falls noch Werktage ohne Eintrag offen sind.
 - **PWA**: auf dem Handy/Tablet zum Homescreen hinzufügbar, läuft dann wie
   eine native App (eigenes Icon, ohne Browser-Adressleiste).
 
@@ -72,7 +78,11 @@ zeiterfassung/
 1. `docker-compose.yml` anpassen: `ADMIN_USERNAME`/`ADMIN_PASSWORD` setzen
    (nur beim allerersten Start wirksam, legt das erste Admin-Konto an),
    optional `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` für
-   Push-Erinnerungen (ohne diese drei bleibt Push einfach deaktiviert).
+   Push-Erinnerungen (ohne diese drei bleibt Push einfach deaktiviert),
+   optional `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/
+   `SMTP_SSL`/`SMTP_FROM_EMAIL`/`SMTP_FROM_NAME` für den automatischen
+   Monatsbericht per E-Mail (ohne `SMTP_HOST`/`SMTP_FROM_EMAIL` bleibt das
+   ebenfalls einfach deaktiviert).
 2. `docker compose up -d --build` (oder das fertige Image von
    `ghcr.io/<dein-repo>:latest` verwenden, das GitHub Actions bei jedem
    Push automatisch baut).

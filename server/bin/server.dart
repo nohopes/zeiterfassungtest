@@ -5,6 +5,10 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:bcrypt/bcrypt.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
+import 'package:mailer/mailer.dart' as mailer;
+import 'package:mailer/smtp_server.dart';
 import 'package:sembast/sembast.dart';
 import 'package:sembast/sembast_io.dart';
 import 'package:shelf/shelf.dart';
@@ -13,6 +17,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:zeiterfassung_server/pdf_report.dart';
 import 'package:zeiterfassung_server/web_push.dart' as web_push;
 
 /// Backend-Server für die Zeiterfassung-PWA.
@@ -99,6 +104,22 @@ String? _vapidPublicKeyRaw;
 String _vapidSubject = 'mailto:kontakt@example.com';
 DateTime? _lastReminderRunDate;
 
+// --- Automatischer Monats-E-Mail-Versand -----------------------------
+//
+// Schickt jeden Nutzer mit hinterlegter `notificationEmail` (siehe Profil)
+// automatisch am 1. jedes Monats - oder, falls der 1. ein Samstag/Sonntag
+// ist, am darauffolgenden Montag - um 07:00 Uhr (Europe/Berlin) den
+// Werkstatt-Bericht des Vormonats als PDF-Anhang zu. Einen Tag vorher, um
+// 18:00 Uhr, bekommt derselbe Nutzer zusätzlich eine Push-Erinnerung, falls
+// noch Werktage ohne Eintrag im Vormonat offen sind. Ohne SMTP_HOST/
+// SMTP_FROM_EMAIL bleibt der komplette Monats-E-Mail-Versand (inkl. der
+// Vorab-Push-Erinnerung) deaktiviert - der Server läuft ganz normal weiter.
+SmtpServer? _smtpServer;
+String _smtpFromEmail = '';
+String _smtpFromName = 'Stunden Logbuch';
+DateTime? _lastMonthlyReportRunDate;
+DateTime? _lastCompletenessReminderRunDate;
+
 Future<void> main() async {
   final port = int.tryParse(Platform.environment['PORT'] ?? '') ?? 8080;
   final dataDir = Platform.environment['DATA_DIR'] ?? '/data';
@@ -111,8 +132,11 @@ Future<void> main() async {
   _db = await databaseFactoryIo.openDatabase('$dataDir/zeiterfassung.db');
   await _ensureAdminBootstrap();
   tz_data.initializeTimeZones();
+  await initializeDateFormatting('de_DE');
   _initPush();
+  _initEmail();
   _startReminderScheduler();
+  _startMonthlyReportScheduler();
 
   final router = Router()
     ..post('/api/auth/login', _login)
@@ -357,6 +381,7 @@ Future<Response> _getProfile(Request request) async {
     jsonEncode({
       'displayName': userRecord['displayName'],
       'signature': userRecord['signature'],
+      'notificationEmail': userRecord['notificationEmail'],
     }),
     headers: {'content-type': 'application/json'},
   );
@@ -377,6 +402,12 @@ Future<Response> _updateProfile(Request request) async {
   }
   if (map.containsKey('signature')) {
     updates['signature'] = map['signature'] as String?;
+  }
+  if (map.containsKey('notificationEmail')) {
+    final trimmed = (map['notificationEmail'] as String?)?.trim();
+    // Leerer String = wie "nicht gesetzt" behandeln (deaktiviert den
+    // automatischen Monats-E-Mail-Versand für diesen Nutzer wieder).
+    updates['notificationEmail'] = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
   }
   if (updates.isNotEmpty) {
     await _usersStore.record(userId).update(_db, updates);
@@ -677,6 +708,229 @@ void _initPush() {
   } catch (e) {
     // ignore: avoid_print
     print('WARNUNG: VAPID-Schlüssel ungültig ($e) - Push-Benachrichtigungen sind deaktiviert.');
+  }
+}
+
+/// Liest die SMTP-Zugangsdaten aus den Umgebungsvariablen. Ohne
+/// SMTP_HOST/SMTP_FROM_EMAIL bleibt der automatische Monats-E-Mail-Versand
+/// komplett deaktiviert - der Server läuft trotzdem ganz normal weiter (nur
+/// eine Warnung im Log), genau wie bei fehlenden VAPID-Schlüsseln oben.
+void _initEmail() {
+  final host = Platform.environment['SMTP_HOST'];
+  final fromEmail = Platform.environment['SMTP_FROM_EMAIL'];
+  if (host == null || host.trim().isEmpty || fromEmail == null || fromEmail.trim().isEmpty) {
+    // ignore: avoid_print
+    print(
+      'Hinweis: SMTP_HOST/SMTP_FROM_EMAIL nicht gesetzt - automatischer '
+      'Monatsbericht per E-Mail ist deaktiviert.',
+    );
+    return;
+  }
+
+  final port = int.tryParse(Platform.environment['SMTP_PORT'] ?? '') ?? 587;
+  final username = Platform.environment['SMTP_USERNAME'];
+  final password = Platform.environment['SMTP_PASSWORD'];
+  final ssl = (Platform.environment['SMTP_SSL'] ?? '').trim().toLowerCase() == 'true';
+  final fromName = Platform.environment['SMTP_FROM_NAME'];
+
+  _smtpServer = SmtpServer(
+    host.trim(),
+    port: port,
+    ssl: ssl,
+    username: (username != null && username.trim().isNotEmpty) ? username.trim() : null,
+    password: (password != null && password.isNotEmpty) ? password : null,
+  );
+  _smtpFromEmail = fromEmail.trim();
+  if (fromName != null && fromName.trim().isNotEmpty) _smtpFromName = fromName.trim();
+  // ignore: avoid_print
+  print('Automatischer Monatsbericht per E-Mail aktiviert (SMTP-Host: ${host.trim()}).');
+}
+
+/// Der Tag, an dem der Monatsbericht für den JEWEILS VORHERGEHENDEN Monat
+/// verschickt wird: normalerweise der 1. des angegebenen Monats, außer der
+/// fällt auf ein Wochenende - dann der darauffolgende Montag (z. B. 1.8.
+/// wäre ein Samstag -> Versand erst am 3.8., NICHT zusätzlich am 1.8.).
+DateTime _monthlyReportSendDate(int year, int month) {
+  final firstOfMonth = DateTime(year, month, 1);
+  if (firstOfMonth.weekday == DateTime.saturday) {
+    return firstOfMonth.add(const Duration(days: 2));
+  }
+  if (firstOfMonth.weekday == DateTime.sunday) {
+    return firstOfMonth.add(const Duration(days: 1));
+  }
+  return firstOfMonth;
+}
+
+/// Jahr/Monat des Vormonats von (year, month) - mit Jahreswechsel bei
+/// Januar.
+(int, int) _previousMonth(int year, int month) {
+  if (month == 1) return (year - 1, 12);
+  return (year, month - 1);
+}
+
+/// Prüft jede Minute, ob gerade der Versandtag des Monatsberichts 07:00 Uhr
+/// (Europe/Berlin) ist (-> Bericht des Vormonats per E-Mail verschicken),
+/// bzw. ob "morgen" der Versandtag ist und es gerade 18:00 Uhr ist (-> eine
+/// Push-Erinnerung verschicken, falls noch Werktage ohne Eintrag offen
+/// sind). Beides jeweils höchstens einmal pro Tag.
+void _startMonthlyReportScheduler() {
+  Timer.periodic(const Duration(minutes: 1), (_) async {
+    final berlin = tz.getLocation('Europe/Berlin');
+    final now = tz.TZDateTime.now(berlin);
+    final today = DateTime(now.year, now.month, now.day);
+
+    final sendDate = _monthlyReportSendDate(now.year, now.month);
+    if (_smtpServer != null &&
+        today == sendDate &&
+        now.hour == 7 &&
+        now.minute == 0 &&
+        _lastMonthlyReportRunDate != today) {
+      _lastMonthlyReportRunDate = today;
+      try {
+        final prev = _previousMonth(now.year, now.month);
+        await _sendMonthlyReports(year: prev.$1, month: prev.$2);
+      } catch (e) {
+        // ignore: avoid_print
+        print('Fehler beim Versand der Monatsberichte: $e');
+      }
+    }
+
+    final tomorrow = today.add(const Duration(days: 1));
+    final tomorrowSendDate = _monthlyReportSendDate(tomorrow.year, tomorrow.month);
+    if (_smtpServer != null &&
+        _vapidPrivateKey != null &&
+        tomorrow == tomorrowSendDate &&
+        now.hour == 18 &&
+        now.minute == 0 &&
+        _lastCompletenessReminderRunDate != today) {
+      _lastCompletenessReminderRunDate = today;
+      try {
+        final prev = _previousMonth(tomorrow.year, tomorrow.month);
+        await _sendCompletenessReminders(year: prev.$1, month: prev.$2);
+      } catch (e) {
+        // ignore: avoid_print
+        print('Fehler beim Versand der Vollständigkeits-Erinnerungen: $e');
+      }
+    }
+  });
+}
+
+/// Verschickt an jeden Nutzer mit hinterlegter `notificationEmail` den
+/// Werkstatt-Bericht (year/month) als PDF-Anhang - server-seitig aus den
+/// rohen sembast-Daten erzeugt (siehe server/lib/pdf_report.dart), exakt
+/// wie beim manuellen Export in der App.
+Future<void> _sendMonthlyReports({required int year, required int month}) async {
+  final start = DateTime(year, month, 1);
+  final end = DateTime(year, month + 1, 1);
+
+  final allUsers = await _usersStore.find(_db);
+  for (final userRecord in allUsers) {
+    final email = (userRecord.value['notificationEmail'] as String? ?? '').trim();
+    if (email.isEmpty) continue;
+
+    final finder = Finder(
+      filter: Filter.and([
+        Filter.greaterThanOrEquals('date', start.toIso8601String()),
+        Filter.lessThan('date', end.toIso8601String()),
+        Filter.equals('userId', userRecord.key),
+      ]),
+      sortOrders: [
+        SortOrder('date'),
+        SortOrder('startHour'),
+        SortOrder('startMinute'),
+      ],
+    );
+    final records = await _store.find(_db, finder: finder);
+    final rawEntries = records.map((r) => r.value).toList();
+    final signatureB64 = userRecord.value['signature'] as String?;
+
+    try {
+      final pdfBytes = await buildWerkstattReportPdf(
+        year: year,
+        month: month,
+        rawEntries: rawEntries,
+        authorName: userRecord.value['displayName'] as String?,
+        signatureBytes: signatureB64 != null ? base64Decode(signatureB64) : null,
+      );
+      await _sendReportEmail(to: email, year: year, month: month, pdfBytes: pdfBytes);
+      // ignore: avoid_print
+      print('Monatsbericht $year-$month an $email versendet.');
+    } catch (e) {
+      // ignore: avoid_print
+      print('Fehler beim Monatsbericht-Versand an $email: $e');
+    }
+  }
+}
+
+/// Verschickt eine einzelne Monatsbericht-E-Mail mit dem PDF im Anhang.
+Future<void> _sendReportEmail({
+  required String to,
+  required int year,
+  required int month,
+  required Uint8List pdfBytes,
+}) async {
+  final server = _smtpServer;
+  if (server == null) return;
+
+  final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(DateTime(year, month));
+  final fileLabel =
+      '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
+
+  final message = mailer.Message()
+    ..from = mailer.Address(_smtpFromEmail, _smtpFromName)
+    ..recipients.add(to)
+    ..subject = 'Werkstattstunden $monthLabel'
+    ..text = 'Im Anhang findest du den Werkstatt-Stundenbericht für $monthLabel.'
+    ..attachments = [
+      mailer.StreamAttachment(
+        Stream.value(pdfBytes),
+        'application/pdf',
+        fileName: 'Werkstattstunden_$fileLabel.pdf',
+      ),
+    ];
+
+  await mailer.send(message, server);
+}
+
+/// Schickt jedem Nutzer mit hinterlegter `notificationEmail` einen Tag vor
+/// dem automatischen Monatsbericht-Versand eine Push-Erinnerung - mit
+/// Hinweis, wie viele Werktage im Vormonat noch OHNE jeden Eintrag sind
+/// (Urlaub/Krankheit zählen als "erfasst", nur wirklich leere Werktage
+/// gelten als fehlend).
+Future<void> _sendCompletenessReminders({required int year, required int month}) async {
+  final start = DateTime(year, month, 1);
+  final end = DateTime(year, month + 1, 1);
+  final monthLabel = DateFormat('MMMM yyyy', 'de_DE').format(start);
+
+  final allUsers = await _usersStore.find(_db);
+  for (final userRecord in allUsers) {
+    final userId = userRecord.key;
+    final email = (userRecord.value['notificationEmail'] as String? ?? '').trim();
+    if (email.isEmpty) continue;
+
+    final finder = Finder(
+      filter: Filter.and([
+        Filter.greaterThanOrEquals('date', start.toIso8601String()),
+        Filter.lessThan('date', end.toIso8601String()),
+        Filter.equals('userId', userId),
+      ]),
+    );
+    final records = await _store.find(_db, finder: finder);
+    final daysWithEntries = records.map((r) => r.value['date'] as String).toSet();
+
+    var missingCount = 0;
+    for (var d = start; d.isBefore(end); d = d.add(const Duration(days: 1))) {
+      final isWeekday = d.weekday >= DateTime.monday && d.weekday <= DateTime.friday;
+      if (isWeekday && !daysWithEntries.contains(d.toIso8601String())) {
+        missingCount++;
+      }
+    }
+
+    final body = missingCount == 0
+        ? 'Für $monthLabel sind alle Werktage im Logbuch erfasst - der Werkstatt-Bericht wird morgen automatisch verschickt.'
+        : 'Für $monthLabel fehlen noch $missingCount Werktag(e) ohne Eintrag im Logbuch - der Werkstatt-Bericht wird morgen automatisch verschickt.';
+
+    await _sendPushToUser(userId, title: 'Stunden Logbuch', body: body);
   }
 }
 

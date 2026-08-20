@@ -27,12 +27,14 @@ class ProfileSection extends StatefulWidget {
 
 class _ProfileSectionState extends State<ProfileSection> {
   final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _signaturePadKey = GlobalKey<SignaturePadState>();
 
   bool _loading = true;
   Uint8List? _savedSignature;
   bool _editingSignature = false;
   bool _savingName = false;
+  bool _savingEmail = false;
   bool _savingSignature = false;
 
   @override
@@ -44,6 +46,7 @@ class _ProfileSectionState extends State<ProfileSection> {
   @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
@@ -58,6 +61,7 @@ class _ProfileSectionState extends State<ProfileSection> {
     if (!mounted) return;
     setState(() {
       _nameController.text = profile.displayName ?? '';
+      _emailController.text = profile.notificationEmail ?? '';
       _savedSignature = profile.signature;
       _editingSignature = profile.signature == null;
       _loading = false;
@@ -71,6 +75,16 @@ class _ProfileSectionState extends State<ProfileSection> {
     setState(() => _savingName = false);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Name gespeichert.')),
+    );
+  }
+
+  Future<void> _saveNotificationEmail() async {
+    setState(() => _savingEmail = true);
+    await ProfileService.instance.saveNotificationEmail(_emailController.text.trim());
+    if (!mounted) return;
+    setState(() => _savingEmail = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('E-Mail-Adresse gespeichert.')),
     );
   }
 
@@ -160,6 +174,40 @@ class _ProfileSectionState extends State<ProfileSection> {
             FilledButton(
               onPressed: _savingName ? null : _saveName,
               child: _savingName
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Speichern'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Text('AUTOMATISCHER MONATSBERICHT', style: AppTextStyles.eyebrow(AppColors.inkMuted)),
+        const SizedBox(height: 4),
+        Text(
+          'Wenn hier eine E-Mail-Adresse hinterlegt ist, schickt der Server '
+          'automatisch am 1. jedes Monats (bzw. am folgenden Montag, falls '
+          'der 1. auf ein Wochenende fällt) den Werkstatt-Bericht des '
+          'Vormonats als PDF dorthin. Leer lassen, um das zu deaktivieren.',
+          style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'E-Mail für Monatsbericht'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _savingEmail ? null : _saveNotificationEmail,
+              child: _savingEmail
                   ? const SizedBox(
                       width: 16,
                       height: 16,

@@ -27,6 +27,7 @@ class ProfileService {
     return ProfileData(
       displayName: displayName,
       signature: signatureB64 == null ? null : base64Decode(signatureB64),
+      notificationEmail: map['notificationEmail'] as String?,
     );
   }
 
@@ -35,6 +36,18 @@ class ProfileService {
       _apiUri('/api/profile'),
       headers: _headers({'content-type': 'application/json'}),
       body: jsonEncode({'displayName': name}),
+    );
+  }
+
+  /// Speichert die E-Mail-Adresse für den automatischen Monatsbericht - ein
+  /// leerer String deaktiviert den Versand wieder (siehe `_getProfile`/
+  /// `_updateProfile` in server/bin/server.dart, dort wird ein leerer
+  /// String genau wie "nicht gesetzt" behandelt).
+  Future<void> saveNotificationEmail(String email) async {
+    await http.put(
+      _apiUri('/api/profile'),
+      headers: _headers({'content-type': 'application/json'}),
+      body: jsonEncode({'notificationEmail': email}),
     );
   }
 

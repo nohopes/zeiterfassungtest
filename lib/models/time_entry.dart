@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../utils/time_rounding.dart';
 
 /// Urlaub/Krankheit sind Tages-Markierungen statt Zeit-Einträgen: keine
-/// Uhrzeit/Dauer, zählen nicht als Arbeitsstunden und tauchen nicht im
-/// Werkstatt-PDF-Export auf.
+/// Uhrzeit, zählen aber pauschal mit [TimeEntry.absenceDayHours] Std. in
+/// der Wochen-/Monatssumme und tauchen nicht im Werkstatt-PDF-Export auf.
 enum AbsenceType {
   urlaub,
   krankheit;
@@ -36,6 +36,11 @@ enum AbsenceType {
 /// - Urlaub/Krankheit-Einträge (absenceType != null): reine
 ///   Tages-Markierung ohne Uhrzeit/Dauer, siehe [AbsenceType].
 class TimeEntry {
+  /// Pauschale Stundenzahl, mit der ein Urlaubs-/Krankheitstag in der
+  /// Wochen-/Monatssumme mitgezählt wird (kein echter Zeit-Eintrag, daher
+  /// fest statt berechnet).
+  static const double absenceDayHours = 8.0;
+
   final int? id;
   final DateTime date;
   final String name;
@@ -71,9 +76,9 @@ class TimeEntry {
 
   /// Gerundete Dauer in Dezimalstunden (0,25-Schritte), abzüglich einer
   /// evtl. gewählten Pause. Wird nie negativ. Urlaub/Krankheit zählen
-  /// bewusst nicht als Arbeitsstunden (0).
+  /// pauschal mit [absenceDayHours] (kein echter Zeit-Eintrag).
   double get durationHours {
-    if (isAbsence) return 0;
+    if (isAbsence) return absenceDayHours;
     final raw = calculateDuration(startTime, endTime);
     final net = raw - Duration(minutes: breakMinutes);
     return roundDurationToQuarterHours(net.isNegative ? Duration.zero : net);

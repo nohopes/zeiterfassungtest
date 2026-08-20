@@ -134,20 +134,30 @@ class _SwipeActionRowState extends State<SwipeActionRow>
                   ],
                 ),
               ),
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  if (_dragX != 0) {
-                    _close();
-                    return;
-                  }
-                  widget.onTap?.call();
-                },
-                onHorizontalDragStart: (_) => _controller.stop(),
-                onHorizontalDragUpdate: _onDragUpdate,
-                onHorizontalDragEnd: _onDragEnd,
-                child: Transform.translate(
-                  offset: Offset(_dragX, 0),
+              // WICHTIG: Positioned statt Transform.translate - Transform
+              // verschiebt nur das Gemalte, nicht die Hit-Test-Box des
+              // GestureDetectors (die bliebe bei der vollen, unverschobenen
+              // Zeilenbreite stehen und würde Taps auf die aufgedeckten
+              // Bearbeiten/Löschen-Buttons darunter abfangen). Positioned
+              // verschiebt die tatsächliche Layout-Position, dadurch geben
+              // Taps rechts vom Inhalt korrekt an den Stack darunter weiter.
+              Positioned(
+                left: _dragX,
+                width: _rowWidth,
+                top: 0,
+                bottom: 0,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    if (_dragX != 0) {
+                      _close();
+                      return;
+                    }
+                    widget.onTap?.call();
+                  },
+                  onHorizontalDragStart: (_) => _controller.stop(),
+                  onHorizontalDragUpdate: _onDragUpdate,
+                  onHorizontalDragEnd: _onDragEnd,
                   child: ColoredBox(color: AppColors.bg, child: widget.child),
                 ),
               ),

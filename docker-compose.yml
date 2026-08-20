@@ -26,4 +26,17 @@ services:
       - VAPID_PUBLIC_KEY=
       - VAPID_PRIVATE_KEY=
       - VAPID_SUBJECT=mailto:deine-email@example.com
+      # Automatischer Monatsbericht per E-Mail (1. jedes Monats bzw. der
+      # folgende Montag, falls der 1. ein Wochenende ist, 07:00 Uhr) -
+      # optional, eigener SMTP-Zugang. Ohne SMTP_HOST/SMTP_FROM_EMAIL bleibt
+      # das komplett deaktiviert. Wer den Bericht erhalten soll, trägt dazu
+      # zusätzlich seine E-Mail-Adresse im Profil in der App ein (leer =
+      # kein automatischer Versand für diesen Nutzer).
+      - SMTP_HOST=
+      - SMTP_PORT=587
+      - SMTP_USERNAME=
+      - SMTP_PASSWORD=
+      - SMTP_SSL=false
+      - SMTP_FROM_EMAIL=
+      - SMTP_FROM_NAME=Stunden Logbuch
     restart: unless-stopped

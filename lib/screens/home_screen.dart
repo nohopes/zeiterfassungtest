@@ -218,6 +218,7 @@ class HomeScreenState extends State<HomeScreen> {
                     label: 'Diese Woche',
                     value: '${formatHours(_weekTotal)} Std.',
                     icon: Icons.date_range_rounded,
+                    accentColor: AppColors.violet,
                     onTap: _openWeekList,
                   ),
                 ),
